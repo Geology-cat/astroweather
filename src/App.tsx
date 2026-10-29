@@ -6,6 +6,7 @@ import { CURRENT_ID, FALLBACK_PLACE, loadPlaces, loadSelected, savePlaces, saveS
 import { addDays, defaultNightKey, type DateKey } from './lib/time';
 import { useForecasts } from './lib/useForecasts';
 import { AstroPanel } from './components/AstroPanel';
+import { CloudMapPanel } from './components/CloudMapPanel';
 import { ComparePanel } from './components/ComparePanel';
 import { DetailForecastPanel } from './components/DetailForecastPanel';
 import { Header } from './components/Header';
@@ -110,6 +111,14 @@ export function App() {
         loading={detailLoading}
         error={detailError}
         placeName={activePlace.name}
+      />
+
+      <CloudMapPanel
+        dateKey={dateKey}
+        places={places}
+        currentPlace={currentPlace}
+        selectedId={activePlace.id}
+        onSelectPlace={handleSelectPlace}
       />
 
       <MapPanel
