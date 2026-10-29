@@ -21,7 +21,7 @@ export const MODEL_COLOR: Record<ModelId, string> = {
 /** 比較画面用（夜間晴天スコア＋参考値）の変数 */
 export const COMPARE_VARS = ['cloud_cover', 'precipitation', 'wind_speed_10m', 'temperature_2m', 'dew_point_2m'] as const;
 
-/** 地点詳細用の変数 */
+/** 地点詳細用の変数（Open-Meteo から取得する全項目） */
 export const DETAIL_VARS = [
   ...COMPARE_VARS,
   'cloud_cover_low',
@@ -29,9 +29,13 @@ export const DETAIL_VARS = [
   'cloud_cover_high',
   'relative_humidity_2m',
   'wind_gusts_10m',
+  'visibility',
 ] as const;
 
 export type VarName = (typeof DETAIL_VARS)[number];
+
+/** 取得した変数に、計算項目（晴れ度・露点差 ΔT）を加えた詳細表示項目 */
+export type MetricId = VarName | 'clear_score' | 'dew_spread';
 
 export interface LocationForecast {
   lat: number;

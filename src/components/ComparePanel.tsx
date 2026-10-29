@@ -168,3 +168,4 @@ export function ComparePanel({ dateKey, places, currentPlace, selectedId, onSele
     </section>
   );
 }
+

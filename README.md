@@ -35,3 +35,4 @@ npm run dev
 - 気象データ: [Open-Meteo.com](https://open-meteo.com/) (CC BY 4.0)
 - 地図タイル: [国土地理院（地理院タイル）](https://maps.gsi.go.jp/development/ichiran.html) / © OpenStreetMap contributors
 - 天文計算: [Astronomy Engine](https://github.com/cosinekitty/astronomy)
+
