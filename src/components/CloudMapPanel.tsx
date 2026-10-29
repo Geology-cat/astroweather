@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import * as maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
-import { omProtocol } from '@openmeteo/weather-map-layer';
+import { getColorScale, getValueFromLatLong, omProtocol } from '@openmeteo/weather-map-layer';
 import { nightWindow } from '../lib/astro';
 import { COMPARE_VARS } from '../lib/forecast';
 import { computeNightScore, scoreColor } from '../lib/score';
@@ -15,7 +15,7 @@ import {
   type SpatialDomainId,
   type SpatialMeta,
 } from '../lib/spatial';
-import type { Place } from '../lib/storage';
+import { formatLatLon, type Place } from '../lib/storage';
 import { HOUR_MS, formatDateShort, formatHM, formatTime, jstNoon, toDateKey, type DateKey } from '../lib/time';
 import { useForecasts } from '../lib/useForecasts';
 
@@ -65,52 +65,105 @@ const TILE_CONFIG: Record<TileLayerId, { label: string; tiles: string[]; attribu
   },
 };
 
-function makeStyle(layerId: TileLayerId): maplibregl.StyleSpecification {
-  const cfg = TILE_CONFIG[layerId];
-  return {
-    version: 8,
-    sources: {
-      base: {
-        type: 'raster',
-        tiles: cfg.tiles,
-        tileSize: 256,
-        attribution: cfg.attribution,
-        maxzoom: cfg.maxzoom,
-      },
-    },
-    layers: [
-      {
-        id: 'base-layer',
-        type: 'raster',
-        source: 'base',
-      },
-    ],
-  };
-}
-
 const OM_SOURCE_ID = 'om-cloud-source';
 const OM_LAYER_ID = 'om-cloud-layer';
+
+/**
+ * ベース地図タイルと雲量オーバーレイの両方を 1 つのスタイル定義にまとめる。
+ * こうすることで、ベース地図を切り替えたときにも雲量レイヤーが途切れず一緒に再描画される。
+ */
+function buildCloudMapStyle(
+  layerId: TileLayerId,
+  omUrl: string | null,
+  opacity: number,
+): maplibregl.StyleSpecification {
+  const cfg = TILE_CONFIG[layerId];
+  const sources: maplibregl.StyleSpecification['sources'] = {
+    base: {
+      type: 'raster',
+      tiles: cfg.tiles,
+      tileSize: 256,
+      attribution: cfg.attribution,
+      maxzoom: cfg.maxzoom,
+    },
+  };
+  const layers: maplibregl.StyleSpecification['layers'] = [
+    {
+      id: 'base-layer',
+      type: 'raster',
+      source: 'base',
+    },
+  ];
+  if (omUrl) {
+    sources[OM_SOURCE_ID] = {
+      type: 'raster',
+      url: omUrl,
+      maxzoom: 12,
+    };
+    layers.push({
+      id: OM_LAYER_ID,
+      type: 'raster',
+      source: OM_SOURCE_ID,
+      paint: {
+        'raster-opacity': opacity,
+        'raster-fade-duration': 150,
+      },
+    });
+  }
+  return { version: 8, sources, layers };
+}
+
+interface ProbePoint {
+  lat: number;
+  lon: number;
+  /** 選択中の層の雲量 (%) */
+  activeValue: number | null;
+  /** 全4層の雲量 (%) */
+  allLayers: Partial<Record<CloudLayerVar, number | null>>;
+  loading: boolean;
+}
 
 /** SCW風の面的な雲量マップ専用パネル */
 export function CloudMapPanel({ dateKey, places, currentPlace, selectedId, onSelectPlace }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const markersRef = useRef<maplibregl.Marker[]>([]);
+  const probeMarkerRef = useRef<maplibregl.Marker | null>(null);
+  const prevTileIdRef = useRef<TileLayerId>('pale');
 
   const [tileId, setTileId] = useState<TileLayerId>('pale');
   const [mapReady, setMapReady] = useState(false);
 
   const [spatialDomain, setSpatialDomain] = useState<SpatialDomainId>('jma_msm');
   const [cloudVar, setCloudVar] = useState<CloudLayerVar>('cloud_cover');
-  const [cloudOpacity, setCloudOpacity] = useState(0.75);
+  const [cloudOpacity, setCloudOpacity] = useState(0.78);
   const [spatialMeta, setSpatialMeta] = useState<SpatialMeta | null>(null);
   const [spatialError, setSpatialError] = useState<string | null>(null);
   const [validTimeMs, setValidTimeMs] = useState<number | null>(null);
+
+  // クリックした地点の雲量読み取り状態
+  const [probe, setProbe] = useState<ProbePoint | null>(null);
 
   const allPlaces = places.length > 0 ? places : [currentPlace];
   const { data: forecasts } = useForecasts(allPlaces, COMPARE_VARS);
 
   const defaultTargetMs = (key: DateKey) => jstNoon(key).getTime() + 9 * HOUR_MS; // 21:00 JST
+
+  const omUrl =
+    spatialMeta && validTimeMs != null
+      ? buildOmTileUrl(spatialDomain, spatialMeta, validTimeMs, cloudVar, true)
+      : null;
+
+  const omUrlRef = useRef<string | null>(null);
+  omUrlRef.current = omUrl;
+  const cloudVarRef = useRef<CloudLayerVar>(cloudVar);
+  cloudVarRef.current = cloudVar;
+  const validTimeRef = useRef<number | null>(validTimeMs);
+  validTimeRef.current = validTimeMs;
+  const domainRef = useRef<SpatialDomainId>(spatialDomain);
+  domainRef.current = spatialDomain;
+  const metaRef = useRef<SpatialMeta | null>(spatialMeta);
+  metaRef.current = spatialMeta;
 
   useEffect(() => {
     let alive = true;
@@ -136,18 +189,95 @@ export function CloudMapPanel({ dateKey, places, currentPlace, selectedId, onSel
     setValidTimeMs(nearestValidTime(spatialMeta.validTimes, defaultTargetMs(dateKey)));
   }, [dateKey, spatialMeta]);
 
+  // 指定座標の雲量を読み取る（1. まず読み込み済み .om メモリから即座に取得、2. 全4層は Open-Meteo API でも補完）
+  const probeAt = async (lat: number, lon: number) => {
+    setProbe({ lat, lon, activeValue: null, allLayers: {}, loading: true });
+
+    let sampled: number | null = null;
+    const currentUrl = omUrlRef.current;
+    if (currentUrl && mapRef.current) {
+      try {
+        const res = await getValueFromLatLong(lat, lon, currentUrl, mapRef.current.getZoom());
+        if (Number.isFinite(res.value)) {
+          sampled = Math.max(0, Math.min(100, Math.round(res.value)));
+        }
+      } catch {
+        // タイル未ロード領域の場合は下の API フォールバックで補う
+      }
+    }
+
+    // 選択中のモデルの全4層の雲量を Open-Meteo からピンポイント取得して補完
+    const modelParam =
+      domainRef.current === 'jma_msm' || domainRef.current === 'jma_seamless'
+        ? 'jma_msm'
+        : domainRef.current === 'ecmwf_ifs'
+          ? 'ecmwf_ifs'
+          : domainRef.current === 'ncep_gfs013'
+            ? 'gfs_seamless'
+            : 'icon_seamless';
+
+    const allLayers: Partial<Record<CloudLayerVar, number | null>> = {};
+    if (sampled != null) {
+      allLayers[cloudVarRef.current] = sampled;
+    }
+
+    try {
+      const apiUrl = `https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(4)}&longitude=${lon.toFixed(4)}&hourly=cloud_cover,cloud_cover_low,cloud_cover_mid,cloud_cover_high&models=${modelParam}&timeformat=unixtime&timezone=Asia%2FTokyo&past_days=1&forecast_days=5`;
+      const r = await fetch(apiUrl);
+      if (r.ok) {
+        const j = (await r.json()) as { hourly?: Record<string, (number | null)[]> & { time?: number[] } };
+        const times = (j.hourly?.time ?? []).map((t) => t * 1000);
+        const target = validTimeRef.current ?? Date.now();
+        let bestIdx = 0;
+        let bestDiff = Infinity;
+        times.forEach((t, i) => {
+          const d = Math.abs(t - target);
+          if (d < bestDiff) {
+            bestDiff = d;
+            bestIdx = i;
+          }
+        });
+        for (const layer of CLOUD_LAYERS) {
+          const arr = j.hourly?.[`${layer.id}_${modelParam}`] ?? j.hourly?.[layer.id];
+          const v = arr?.[bestIdx];
+          if (v != null && Number.isFinite(v)) {
+            allLayers[layer.id] = Math.round(v);
+          }
+        }
+        if (sampled == null && allLayers[cloudVarRef.current] != null) {
+          sampled = allLayers[cloudVarRef.current]!;
+        }
+      }
+    } catch {
+      /* noop */
+    }
+
+    setProbe({
+      lat,
+      lon,
+      activeValue: sampled,
+      allLayers,
+      loading: false,
+    });
+  };
+
   useEffect(() => {
     ensureOmProtocol();
     if (!containerRef.current) return;
     const selected = allPlaces.find((p) => p.id === selectedId) ?? currentPlace;
     const map = new maplibregl.Map({
       container: containerRef.current,
-      style: makeStyle(tileId),
+      style: buildCloudMapStyle(tileId, omUrl, cloudOpacity),
       center: [selected.lon, selected.lat],
-      zoom: 6.0,
+      zoom: 6.2,
     });
     map.addControl(new maplibregl.NavigationControl(), 'top-right');
     map.on('load', () => setMapReady(true));
+    map.on('click', (e: maplibregl.MapMouseEvent) => {
+      const lat = Number(e.lngLat.lat.toFixed(4));
+      const lon = Number(e.lngLat.lng.toFixed(4));
+      probeAt(lat, lon);
+    });
     mapRef.current = map;
     return () => {
       map.remove();
@@ -157,24 +287,22 @@ export function CloudMapPanel({ dateKey, places, currentPlace, selectedId, onSel
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  useEffect(() => {
-    const map = mapRef.current;
-    if (!map) return;
-    setMapReady(false);
-    map.once('styledata', () => setMapReady(true));
-    map.setStyle(makeStyle(tileId));
-  }, [tileId]);
-
+  // ベース地図・雲量ソース・時刻・層が変わったときの反映（ベース切替時も雲量レイヤーを同時に組み込むため途切れない）
   useEffect(() => {
     const map = mapRef.current;
     if (!map || !mapReady) return;
 
+    if (prevTileIdRef.current !== tileId) {
+      prevTileIdRef.current = tileId;
+      map.setStyle(buildCloudMapStyle(tileId, omUrl, cloudOpacity));
+      return;
+    }
+
     if (map.getLayer(OM_LAYER_ID)) map.removeLayer(OM_LAYER_ID);
     if (map.getSource(OM_SOURCE_ID)) map.removeSource(OM_SOURCE_ID);
 
-    if (!spatialMeta || validTimeMs == null) return;
+    if (!omUrl) return;
 
-    const omUrl = buildOmTileUrl(spatialDomain, spatialMeta, validTimeMs, cloudVar, true);
     map.addSource(OM_SOURCE_ID, {
       type: 'raster',
       url: omUrl,
@@ -189,7 +317,45 @@ export function CloudMapPanel({ dateKey, places, currentPlace, selectedId, onSel
         'raster-fade-duration': 150,
       },
     });
-  }, [mapReady, spatialDomain, spatialMeta, validTimeMs, cloudVar, cloudOpacity]);
+  }, [mapReady, tileId, omUrl]);
+
+  // 不透明度の変更はレイヤーを作り直さずに paint プロパティだけ即時反映
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !mapReady) return;
+    if (map.getLayer(OM_LAYER_ID)) {
+      map.setPaintProperty(OM_LAYER_ID, 'raster-opacity', cloudOpacity);
+    }
+  }, [mapReady, cloudOpacity]);
+
+  // 層や時刻が変わったときに、選択中のプローブ地点があれば値も更新
+  useEffect(() => {
+    if (probe && validTimeMs != null) {
+      probeAt(probe.lat, probe.lon);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cloudVar, validTimeMs, spatialDomain]);
+
+  // プローブ地点のピンマーカー表示
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map) return;
+    if (probeMarkerRef.current) {
+      probeMarkerRef.current.remove();
+      probeMarkerRef.current = null;
+    }
+    if (!probe) return;
+
+    const layerLabel = CLOUD_LAYERS.find((l) => l.id === cloudVar)?.label ?? '雲量';
+    const el = document.createElement('div');
+    el.className = 'probe-marker';
+    const valText = probe.loading ? '…' : probe.activeValue == null ? '—%' : `${probe.activeValue}%`;
+    el.innerHTML = `<span class="probe-val">${layerLabel}: <b>${valText}</b></span><span class="probe-dot"></span>`;
+
+    probeMarkerRef.current = new maplibregl.Marker({ element: el, anchor: 'bottom' })
+      .setLngLat([probe.lon, probe.lat])
+      .addTo(map);
+  }, [probe, cloudVar]);
 
   useEffect(() => {
     if (!mapRef.current) return;
@@ -200,7 +366,7 @@ export function CloudMapPanel({ dateKey, places, currentPlace, selectedId, onSel
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId]);
 
-  // 登録地点のマーカー（位置確認と地点切替のみ）
+  // 登録地点のマーカー（位置確認と地点切替）
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -234,13 +400,18 @@ export function CloudMapPanel({ dateKey, places, currentPlace, selectedId, onSel
   const noonMs = jstNoon(dateKey).getTime();
   const nightSteps = validTimes.filter((t) => t >= noonMs + 5 * HOUR_MS && t <= noonMs + 18 * HOUR_MS);
 
+  // 現在選択されている雲層（全雲量・上層・中層・下層）の実際のカラースケールを取得
+  const scale = getColorScale(cloudVar, true);
+  const breakpoints = 'breakpoints' in scale ? scale.breakpoints : [];
+  const activeLayerLabel = CLOUD_LAYERS.find((l) => l.id === cloudVar)?.label ?? '雲量';
+
   return (
     <section className="card">
       <div className="panel-head">
         <div>
           <h2 className="card-title map">☁ 雲量マップ（空間分布）</h2>
           <p className="sub">
-            Open-Meteo Spatial Data（S3 `.om` 格子データ）による面的な雲量分布。モデル・雲の層・時刻を切り替えて雲の動きを確認できます。
+            地図上の任意の地点をクリックすると、その地点の雲量（%）を表示します。モデル・雲の層・時刻を切り替えて確認できます。
           </p>
         </div>
         <div className="panel-controls">
@@ -364,7 +535,75 @@ export function CloudMapPanel({ dateKey, places, currentPlace, selectedId, onSel
         )}
       </div>
 
-      <div ref={containerRef} className="map-box" />
+      {/* 大きく表示する雲量マップ本体 */}
+      <div ref={containerRef} className="map-box cloud-map-large" />
+
+      {/* クリック地点の雲量表示バー */}
+      {probe && (
+        <div className="cloud-probe-bar">
+          <div className="probe-main">
+            <span className="mono">🎯 選択地点 ({formatLatLon(probe.lat, probe.lon)})</span>
+            <span className="probe-highlight">
+              {activeLayerLabel}:{' '}
+              <b>{probe.loading ? '読取中…' : probe.activeValue == null ? '—' : `${probe.activeValue}%`}</b>
+            </span>
+          </div>
+          <div className="probe-layers">
+            {CLOUD_LAYERS.map((l) => {
+              const v = probe.allLayers[l.id];
+              return (
+                <span key={l.id} className={l.id === cloudVar ? 'probe-chip active' : 'probe-chip'}>
+                  <span className="sub">{l.label}:</span> <b>{v == null ? '—' : `${v}%`}</b>
+                </span>
+              );
+            })}
+            <button type="button" className="btn" onClick={() => setProbe(null)}>
+              閉じる
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* カラー凡例（選択中の層の実際のパレット＋4層の色分けガイド） */}
+      <div className="cloud-legend-box">
+        <div className="legend-row">
+          <span className="legend-title">{activeLayerLabel} カラー凡例 (%):</span>
+          <div className="legend-scale">
+            {breakpoints.map((bp: number, i: number) => {
+              const [r, g, b, a] = scale.colors[i] ?? [0, 0, 0, 0];
+              const nextBp = breakpoints[i + 1];
+              const label = nextBp != null ? `${bp}–${nextBp}%` : `${bp}–100%`;
+              return (
+                <div key={bp} className="legend-step">
+                  <span
+                    className="legend-swatch"
+                    style={{
+                      background: `rgba(${r}, ${g}, ${b}, ${Math.max(0.18, a)})`,
+                    }}
+                  />
+                  <span className="legend-num mono">{label}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+        <div className="legend-layer-guide sub">
+          <span>層別の色分け:</span>
+          <span>
+            <i className="layer-swatch total" /> 全雲量（白〜灰白色）
+          </span>
+          <span>
+            <i className="layer-swatch high" /> 上層雲 8km〜（青色）
+          </span>
+          <span>
+            <i className="layer-swatch mid" /> 中層雲 3〜8km（緑色）
+          </span>
+          <span>
+            <i className="layer-swatch low" /> 下層雲 〜3km（赤色）
+          </span>
+          <span>※ 0%（快晴）は透明になり下の地図が見えます</span>
+        </div>
+      </div>
     </section>
   );
 }
