@@ -3,6 +3,7 @@ import * as maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { nightWindow } from '../lib/astro';
 import { COMPARE_VARS } from '../lib/forecast';
+import { parseLatLonInput, searchPlaceCandidates, type GeocodeCandidate } from '../lib/geocode';
 import { computeNightScore, scoreColor } from '../lib/score';
 import { formatLatLon, newPlaceId, type Place } from '../lib/storage';
 import type { DateKey } from '../lib/time';
@@ -79,6 +80,18 @@ export function MapPanel({ dateKey, places, currentPlace, selectedId, onSelectPl
   const [clickedLatLon, setClickedLatLon] = useState<{ lat: number; lon: number } | null>(null);
   const [newName, setNewName] = useState('');
 
+  // 住所・地名検索用の状態
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searching, setSearching] = useState(false);
+  const [candidates, setCandidates] = useState<GeocodeCandidate[]>([]);
+  const [searchError, setSearchError] = useState<string | null>(null);
+
+  // 緯度経度直接入力用の状態
+  const [manualName, setManualName] = useState('');
+  const [latInput, setLatInput] = useState('');
+  const [lonInput, setLonInput] = useState('');
+  const [coordError, setCoordError] = useState<string | null>(null);
+
   // 地図上のマーカーはユーザーが登録した地点のみ（未登録時は選択中の現在地のみ）
   const allPlaces = places.length > 0 ? places : [currentPlace];
   const { data: forecasts } = useForecasts(allPlaces, COMPARE_VARS);
@@ -95,7 +108,11 @@ export function MapPanel({ dateKey, places, currentPlace, selectedId, onSelectPl
     });
     map.addControl(new maplibregl.NavigationControl(), 'top-right');
     map.on('click', (e: maplibregl.MapMouseEvent) => {
-      setClickedLatLon({ lat: Number(e.lngLat.lat.toFixed(4)), lon: Number(e.lngLat.lng.toFixed(4)) });
+      const lat = Number(e.lngLat.lat.toFixed(4));
+      const lon = Number(e.lngLat.lng.toFixed(4));
+      setClickedLatLon({ lat, lon });
+      setLatInput(String(lat));
+      setLonInput(String(lon));
     });
     mapRef.current = map;
     return () => {
@@ -149,14 +166,63 @@ export function MapPanel({ dateKey, places, currentPlace, selectedId, onSelectPl
     });
   }, [allPlaces, forecasts, dateKey, selectedId, onSelectPlace]);
 
-  const handleAddClicked = () => {
-    if (!clickedLatLon) return;
-    const name = newName.trim() || `地点 (${clickedLatLon.lat.toFixed(2)}, ${clickedLatLon.lon.toFixed(2)})`;
-    const created: Place = { id: newPlaceId(), name, lat: clickedLatLon.lat, lon: clickedLatLon.lon };
+  const registerPlace = (name: string, lat: number, lon: number) => {
+    const finalName = name.trim() || `地点 (${lat.toFixed(2)}, ${lon.toFixed(2)})`;
+    const created: Place = { id: newPlaceId(), name: finalName, lat, lon };
     onAddPlace(created);
     onSelectPlace(created.id);
+    mapRef.current?.flyTo({ center: [lon, lat], zoom: Math.max(mapRef.current.getZoom(), 9), duration: 650 });
+  };
+
+  const handleAddClicked = () => {
+    if (!clickedLatLon) return;
+    registerPlace(newName, clickedLatLon.lat, clickedLatLon.lon);
     setNewName('');
     setClickedLatLon(null);
+  };
+
+  // 住所・地名検索の実行
+  const handleSearch = async () => {
+    const q = searchQuery.trim();
+    if (!q) return;
+    setSearching(true);
+    setSearchError(null);
+    const list = await searchPlaceCandidates(q);
+    setSearching(false);
+    setCandidates(list);
+    if (!list.length) {
+      setSearchError('該当する住所・地名が見つかりませんでした。');
+    } else if (mapRef.current) {
+      mapRef.current.flyTo({ center: [list[0].lon, list[0].lat], zoom: 10, duration: 600 });
+    }
+  };
+
+  // 緯度経度入力からの登録
+  const handleAddManualCoord = () => {
+    setCoordError(null);
+    const parsed = parseLatLonInput(latInput, lonInput);
+    if (!parsed) {
+      setCoordError('緯度（-90〜90）と経度（-180〜180）を正しく入力してください（例: 43.4792, 142.1478）');
+      return;
+    }
+    registerPlace(manualName, parsed.lat, parsed.lon);
+    setManualName('');
+    setLatInput('');
+    setLonInput('');
+    setClickedLatLon(null);
+  };
+
+  // 緯度欄に「43.4792, 142.1478」と一括ペーストされた場合に自動分割する
+  const handleLatChange = (val: string) => {
+    if (val.includes(',') || val.includes('，')) {
+      const parts = val.split(/[,，]/).map((s) => s.trim());
+      if (parts.length >= 2) {
+        setLatInput(parts[0]);
+        setLonInput(parts[1]);
+        return;
+      }
+    }
+    setLatInput(val);
   };
 
   return (
@@ -164,7 +230,7 @@ export function MapPanel({ dateKey, places, currentPlace, selectedId, onSelectPl
       <div className="panel-head">
         <div>
           <h2 className="card-title map">🗺 観測地点マップ & 地点登録</h2>
-          <p className="sub">地図上をクリックして名前を付けると観測地点として登録されます。マーカーの数字はその夜の夜間晴天スコアです。</p>
+          <p className="sub">① 住所・地名検索、② 緯度・経度の直接入力、③ 地図クリック の3通りで観測地点を登録できます。</p>
         </div>
         <div className="panel-controls">
           <select className="ctrl-select" value={tileId} onChange={(e) => setTileId(e.target.value as TileLayerId)} aria-label="地図タイル切替">
@@ -177,11 +243,98 @@ export function MapPanel({ dateKey, places, currentPlace, selectedId, onSelectPl
         </div>
       </div>
 
+      {/* 地点登録フォーム（住所・地名検索 ＆ 緯度経度直接入力） */}
+      <div className="place-add-grid">
+        <div className="place-add-box">
+          <div className="add-box-title">🔍 住所・地名・施設名から検索して登録</div>
+          <div className="add-row">
+            <input
+              type="text"
+              className="text-input grow"
+              placeholder="例：北海道芦別市 / 支笏湖 / 美瑛町白金 / 大雪山旭岳…"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+            />
+            <button type="button" className="btn primary" onClick={handleSearch} disabled={searching || !searchQuery.trim()}>
+              {searching ? '検索中…' : '検索'}
+            </button>
+            {candidates.length > 0 && (
+              <button type="button" className="btn" onClick={() => setCandidates([])}>
+                クリア
+              </button>
+            )}
+          </div>
+          {searchError && <div className="sub" style={{ color: '#fca5a5', marginTop: 4 }}>{searchError}</div>}
+          {candidates.length > 0 && (
+            <ul className="candidate-list">
+              {candidates.map((c, idx) => (
+                <li key={`${c.lat}-${c.lon}-${idx}`} className="candidate-item">
+                  <div className="cand-info" onClick={() => mapRef.current?.flyTo({ center: [c.lon, c.lat], zoom: 11, duration: 500 })}>
+                    <div className="cand-name">{c.name}</div>
+                    <div className="sub">
+                      {c.detail} — <span className="mono">{formatLatLon(c.lat, c.lon)}</span>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="btn primary"
+                    onClick={() => {
+                      registerPlace(c.name, c.lat, c.lon);
+                      setCandidates([]);
+                      setSearchQuery('');
+                    }}
+                  >
+                    ＋ 登録
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        <div className="place-add-box">
+          <div className="add-box-title">🧭 緯度・経度を入力して登録（カンマ区切りペースト可）</div>
+          <div className="add-row">
+            <input
+              type="text"
+              className="text-input"
+              placeholder="地点名（任意）"
+              value={manualName}
+              onChange={(e) => setManualName(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleAddManualCoord()}
+            />
+            <input
+              type="text"
+              inputMode="decimal"
+              className="text-input coord-input mono"
+              placeholder="緯度 (例: 43.4792)"
+              value={latInput}
+              onChange={(e) => handleLatChange(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleAddManualCoord()}
+            />
+            <input
+              type="text"
+              inputMode="decimal"
+              className="text-input coord-input mono"
+              placeholder="経度 (例: 142.1478)"
+              value={lonInput}
+              onChange={(e) => setLonInput(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleAddManualCoord()}
+            />
+            <button type="button" className="btn primary" onClick={handleAddManualCoord} disabled={!latInput.trim()}>
+              ＋ 登録
+            </button>
+          </div>
+          {coordError && <div className="sub" style={{ color: '#fca5a5', marginTop: 4 }}>{coordError}</div>}
+        </div>
+      </div>
+
       <div ref={containerRef} className="map-box" />
 
       {clickedLatLon && (
         <div className="map-add-bar">
-          <span className="mono">📍 選択座標: {formatLatLon(clickedLatLon.lat, clickedLatLon.lon)}</span>
+          <span className="mono">📍 地図クリック座標: {formatLatLon(clickedLatLon.lat, clickedLatLon.lon)}</span>
           <input
             type="text"
             className="text-input"
@@ -201,13 +354,13 @@ export function MapPanel({ dateKey, places, currentPlace, selectedId, onSelectPl
 
       <div className="place-manager">
         {places.length === 0 ? (
-          <div className="sub">登録された観測地点はありません。上の地図をクリックして登録してください。</div>
+          <div className="sub">登録された観測地点はありません。上の検索・緯度経度入力・地図クリックから登録してください。</div>
         ) : (
           <div className="place-chips">
             {places.map((p) => (
               <span key={p.id} className={p.id === selectedId ? 'place-chip active' : 'place-chip'}>
                 <button className="chip-select" onClick={() => onSelectPlace(p.id)}>
-                  {p.name}
+                  {p.name} <span className="sub mono">({formatLatLon(p.lat, p.lon)})</span>
                 </button>
                 <button className="chip-del" onClick={() => onRemovePlace(p.id)} title="削除" aria-label={`${p.name}を削除`}>
                   ×

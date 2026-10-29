@@ -652,6 +652,84 @@ a:hover {
 }
 
 /* Map & Place Manager */
+.place-add-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+@media (max-width: 900px) {
+  .place-add-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.place-add-box {
+  background: rgba(0, 0, 0, 0.24);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 12px;
+  padding: 10px 12px;
+}
+
+.add-box-title {
+  font-size: 13px;
+  font-weight: 600;
+  margin-bottom: 7px;
+  color: #e2e8f0;
+}
+
+.add-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.text-input.grow {
+  flex: 1;
+  min-width: 180px;
+}
+
+.text-input.coord-input {
+  width: 135px;
+}
+
+.candidate-list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  max-height: 210px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.candidate-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.cand-info {
+  cursor: pointer;
+  flex: 1;
+  min-width: 0;
+}
+.cand-info:hover .cand-name {
+  text-decoration: underline;
+}
+.cand-name {
+  font-size: 13px;
+  font-weight: 600;
+}
+
 .map-box {
   width: 100%;
   height: 380px;
