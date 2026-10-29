@@ -34,6 +34,25 @@ export function StripAxis({ axisStart, axisEnd }: { axisStart: number; axisEnd: 
   );
 }
 
+/** 晴れ度のカラーバー（ストリップと同じ clearColor から作るので色が必ず一致する） */
+export function ClearLegend() {
+  const stops = [0, 25, 50, 75, 100].map((v) => `${clearColor(v)} ${v}%`).join(', ');
+  return (
+    <div className="clear-legend" role="img" aria-label="晴れ度のカラーバー：0 は曇り・降水、100 は快晴">
+      <span className="cl-end">曇・雨</span>
+      <span className="cl-scale">
+        <span className="cl-bar" style={{ background: `linear-gradient(90deg, ${stops})` }} />
+        <span className="cl-ticks mono">
+          <span>0</span>
+          <span>50</span>
+          <span>100</span>
+        </span>
+      </span>
+      <span className="cl-end">快晴</span>
+    </div>
+  );
+}
+
 /** 晴れ度の時間帯ストリップ。各毎時値は前後 30 分を代表するセルとして描く */
 export function ClearStrip({ hours, axisStart, axisEnd, windowStart, windowEnd, showAxis }: Props) {
   const span = axisEnd - axisStart;

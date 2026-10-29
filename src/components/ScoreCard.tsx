@@ -2,7 +2,7 @@ import type { NightWindow } from '../lib/astro';
 import { MODELS, MODEL_COLOR, MODEL_LABEL, type LocationForecast } from '../lib/forecast';
 import { hourlyClear, scoreColor, type NightScore } from '../lib/score';
 import { HOUR_MS, formatDuration, formatHM } from '../lib/time';
-import { ClearStrip } from './ClearStrip';
+import { ClearLegend, ClearStrip } from './ClearStrip';
 import { CardTitle } from './Icon';
 
 const KIND_LABEL = { astronomical: '天文薄明', nautical: '航海薄明（終夜薄明のため代用）', sunset: '日の入〜日の出（代用）' };
@@ -110,7 +110,10 @@ export function ScoreCard({ score, fc, win, loading, error }: Props) {
             </div>
           </div>
           <div className="score-side">
-            <span className="side-label">時間帯ごとの晴れ度（白線の内側が集計窓）</span>
+            <div className="side-head">
+              <span className="side-label">時間帯ごとの晴れ度（白線の内側が集計窓）</span>
+              <ClearLegend />
+            </div>
             <ClearStrip
               hours={hourlyClear(fc, score.usedModels, axisStart, axisEnd)}
               axisStart={axisStart}
