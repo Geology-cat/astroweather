@@ -19,9 +19,15 @@ interface Props {
   onRemovePlace: (id: string) => void;
 }
 
-type TileLayerId = 'pale' | 'hillshade' | 'photo' | 'osm';
+type TileLayerId = 'osm' | 'pale' | 'hillshade' | 'photo';
 
 const TILE_CONFIG: Record<TileLayerId, { label: string; tiles: string[]; attribution: string; maxzoom: number }> = {
+  osm: {
+    label: 'OpenStreetMap',
+    tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
+    attribution: '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> contributors',
+    maxzoom: 19,
+  },
   pale: {
     label: '地理院 淡色地図',
     tiles: ['https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png'],
@@ -39,12 +45,6 @@ const TILE_CONFIG: Record<TileLayerId, { label: string; tiles: string[]; attribu
     tiles: ['https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg'],
     attribution: '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noreferrer">地理院タイル（写真）</a>',
     maxzoom: 18,
-  },
-  osm: {
-    label: 'OpenStreetMap',
-    tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-    attribution: '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> contributors',
-    maxzoom: 19,
   },
 };
 
@@ -77,7 +77,7 @@ export function MapPanel({ dateKey, places, currentPlace, selectedId, onSelectPl
   const mapRef = useRef<maplibregl.Map | null>(null);
   const markersRef = useRef<maplibregl.Marker[]>([]);
 
-  const [tileId, setTileId] = useState<TileLayerId>('pale');
+  const [tileId, setTileId] = useState<TileLayerId>('osm');
   const [clickedLatLon, setClickedLatLon] = useState<{ lat: number; lon: number } | null>(null);
   const [newName, setNewName] = useState('');
 
