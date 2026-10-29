@@ -1623,10 +1623,125 @@ select {
 
 .place-manager {
   display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 14px;
+}
+.manager-head {
+  display: flex;
+  justify-content: space-between;
   align-items: center;
   flex-wrap: wrap;
   gap: 8px 12px;
-  margin-top: 14px;
+}
+.manager-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* KML / KMZ 読み込み */
+.card.is-drag-over {
+  border-color: var(--tone-map);
+  box-shadow: 0 0 0 3px rgba(125, 220, 160, 0.25), var(--shadow);
+}
+.import-message {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 7px 4px 7px 12px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+}
+.import-message.ok {
+  color: #bfeccf;
+  border: 1px solid rgba(125, 220, 160, 0.32);
+  background: rgba(125, 220, 160, 0.07);
+}
+.import-message.error {
+  color: #fca5a5;
+  border: 1px solid rgba(248, 113, 113, 0.32);
+  background: rgba(220, 38, 38, 0.1);
+}
+.import-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid rgba(143, 179, 255, 0.3);
+  background: rgba(143, 179, 255, 0.06);
+}
+.import-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  font-size: 13px;
+}
+.import-head .muted {
+  font-size: 12px;
+}
+.import-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 260px;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 4px;
+}
+.import-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  font-size: 13px;
+  cursor: pointer;
+}
+.import-item:hover {
+  border-color: var(--line-3);
+}
+.import-item input {
+  margin: 0;
+  accent-color: var(--primary);
+  flex: none;
+}
+.import-name {
+  font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.import-item .muted {
+  margin-left: auto;
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+.dup-tag {
+  flex: none;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  color: var(--text-2);
+  font-size: 11px;
+}
+.import-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 12px;
+}
+.import-actions .muted {
+  font-size: 12px;
 }
 .manager-label {
   display: inline-flex;

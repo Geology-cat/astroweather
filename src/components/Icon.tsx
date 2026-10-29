@@ -20,6 +20,8 @@ const PATHS = {
   plus: 'M12 5.5v13M5.5 12h13',
   target: 'M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17zM12 9a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM12 1.8v3M12 19.2v3M1.8 12h3M19.2 12h3',
   layers: 'M12 3.5l8.5 4.5-8.5 4.5L3.5 8zM3.5 12.2 12 16.7l8.5-4.5M3.5 16.2 12 20.7l8.5-4.5',
+  upload: 'M12 15V4M7.5 8.5 12 4l4.5 4.5M4.5 14.5v4a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-4',
+  download: 'M12 4v11M7.5 10.5 12 15l4.5-4.5M4.5 14.5v4a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-4',
 } as const;
 
 export type IconName = keyof typeof PATHS;

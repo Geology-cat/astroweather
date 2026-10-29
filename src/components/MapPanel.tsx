@@ -2,10 +2,11 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { nightWindow } from '../lib/astro';
 import { COMPARE_VARS } from '../lib/forecast';
 import { parseLatLonInput, searchPlaceCandidates, type GeocodeCandidate } from '../lib/geocode';
+import { buildKml, buildKmz, downloadFile, isSameLocation, readPlacesFile, type KmlPoint } from '../lib/kml';
 import { PIN_OFFSET, TILE_CONFIG, TILE_IDS, baseStyle, createPinMarker, maplibregl, type TileLayerId } from '../lib/maplibre';
 import { computeNightScore, scoreColor } from '../lib/score';
 import { formatLatLon, newPlaceId, type Place } from '../lib/storage';
-import type { DateKey } from '../lib/time';
+import { toDateKey, type DateKey } from '../lib/time';
 import { useForecasts } from '../lib/useForecasts';
 import { CardTitle, Icon } from './Icon';
 
@@ -23,6 +24,16 @@ interface Props {
  * 確定操作としての Enter か。日本語入力（IME）の変換確定に使う Enter は除く
  * （Safari は確定直後の keydown で isComposing が false になるため keyCode 229 も見る）。
  */
+/** KML/KMZ 読み込み後、登録前に確認する一覧の状態 */
+interface ImportPreview {
+  fileName: string;
+  points: (KmlPoint & { duplicate: boolean })[];
+  selected: boolean[];
+  skippedNonPoint: number;
+}
+
+const KML_ACCEPT = '.kml,.kmz,application/vnd.google-earth.kml+xml,application/vnd.google-earth.kmz';
+
 function isSubmitEnter(e: KeyboardEvent<HTMLInputElement>): boolean {
   return e.key === 'Enter' && !e.nativeEvent.isComposing && e.keyCode !== 229;
 }
@@ -49,6 +60,12 @@ export function MapPanel({ dateKey, places, currentPlace, selectedId, onSelectPl
   const [lonInput, setLonInput] = useState('');
   const [coordError, setCoordError] = useState<string | null>(null);
   const latInputRef = useRef<HTMLInputElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // KML/KMZ の読み込み・書き出し用の状態
+  const [importPreview, setImportPreview] = useState<ImportPreview | null>(null);
+  const [importMessage, setImportMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
+  const [dragOver, setDragOver] = useState(false);
   const lonInputRef = useRef<HTMLInputElement | null>(null);
 
   const allPlaces = useMemo(() => (places.length > 0 ? places : [currentPlace]), [places, currentPlace]);
@@ -166,6 +183,61 @@ export function MapPanel({ dateKey, places, currentPlace, selectedId, onSelectPl
     setClickedLatLon(null);
   };
 
+  const handleImportFile = async (file: File) => {
+    setImportMessage(null);
+    setImportPreview(null);
+    try {
+      const r = await readPlacesFile(file);
+      if (r.networkLinkOnly) {
+        setImportMessage({
+          kind: 'error',
+          text: 'このファイルは外部データへのリンク（ネットワークリンク）だけで、地点が含まれていません。Google マイマップで書き出すときは「ネットワーク リンク KML で最新の状態に保つ」のチェックを外してください。',
+        });
+        return;
+      }
+      if (!r.points.length) {
+        setImportMessage({
+          kind: 'error',
+          text: r.skippedNonPoint ? `地点（ポイント）が見つかりませんでした（線・面 ${r.skippedNonPoint} 件は対象外です）。` : '地点が見つかりませんでした。',
+        });
+        return;
+      }
+      const points = r.points.map((pt) => ({ ...pt, duplicate: places.some((p) => isSameLocation(p, pt)) }));
+      setImportPreview({ fileName: file.name, points, selected: points.map((pt) => !pt.duplicate), skippedNonPoint: r.skippedNonPoint });
+      // 読み込んだ地点が全部見える範囲に地図を合わせる
+      const map = mapRef.current;
+      if (map) {
+        const bounds = new maplibregl.LngLatBounds();
+        points.forEach((pt) => bounds.extend([pt.lon, pt.lat]));
+        map.fitBounds(bounds, { padding: 60, maxZoom: 10, duration: 600 });
+      }
+    } catch (e) {
+      setImportMessage({ kind: 'error', text: e instanceof Error ? e.message : 'ファイルを読み込めませんでした。' });
+    }
+  };
+
+  const toggleImportPoint = (idx: number) =>
+    setImportPreview((prev) => prev && { ...prev, selected: prev.selected.map((v, i) => (i === idx ? !v : v)) });
+
+  const toggleImportAll = (value: boolean) => setImportPreview((prev) => prev && { ...prev, selected: prev.selected.map(() => value) });
+
+  const handleRegisterImported = () => {
+    if (!importPreview) return;
+    const chosen = importPreview.points.filter((_, i) => importPreview.selected[i]);
+    chosen.forEach((pt) => onAddPlace({ id: newPlaceId(), name: pt.name, lat: pt.lat, lon: pt.lon }));
+    setImportPreview(null);
+    setImportMessage({ kind: 'ok', text: `${chosen.length} 地点を登録しました。` });
+  };
+
+  const exportPlaces = (format: 'kml' | 'kmz') => {
+    const stamp = toDateKey(new Date()).replaceAll('-', '');
+    if (format === 'kml') {
+      downloadFile(buildKml(places), `astroweather-places-${stamp}.kml`, 'application/vnd.google-earth.kml+xml');
+    } else {
+      downloadFile(buildKmz(places), `astroweather-places-${stamp}.kmz`, 'application/vnd.google-earth.kmz');
+    }
+  };
+
   // 緯度・経度フォームの Enter：未入力の欄が残っていれば登録せず次の空欄へ移る
   const handleCoordKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
     if (!isSubmitEnter(e)) return;
@@ -194,13 +266,31 @@ export function MapPanel({ dateKey, places, currentPlace, selectedId, onSelectPl
   };
 
   return (
-    <section className="card">
+    <section
+      className={dragOver ? 'card is-drag-over' : 'card'}
+      onDragOver={(e) => {
+        if (!e.dataTransfer.types.includes('Files')) return;
+        e.preventDefault();
+        setDragOver(true);
+      }}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragOver(false);
+      }}
+      onDrop={(e) => {
+        if (!e.dataTransfer.files.length) return;
+        e.preventDefault();
+        setDragOver(false);
+        handleImportFile(e.dataTransfer.files[0]);
+      }}
+    >
       <div className="card-head">
         <div className="head-text">
           <CardTitle icon="pin" tone="map">
             観測地点Map
           </CardTitle>
-          <p className="card-desc">① 住所・地名検索、② 緯度・経度の直接入力、③ 地図クリック の3通りで観測地点を登録・削除できます。</p>
+          <p className="card-desc">
+            ① 住所・地名検索、② 緯度・経度の直接入力、③ 地図クリック の3通りで観測地点を登録・削除できます。Google マイマップなどの KML / KMZ の読み込み・書き出しにも対応しています（ファイルをここへドラッグ＆ドロップしても読み込めます）。
+          </p>
         </div>
       </div>
 
@@ -348,9 +438,96 @@ export function MapPanel({ dateKey, places, currentPlace, selectedId, onSelectPl
       )}
 
       <div className="place-manager">
-        <span className="manager-label">登録地点 <span className="count-badge mono">{places.length}</span></span>
+        <div className="manager-head">
+          <span className="manager-label">
+            登録地点 <span className="count-badge mono">{places.length}</span>
+          </span>
+          <div className="manager-actions">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept={KML_ACCEPT}
+              hidden
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                e.target.value = ''; // 同じファイルを続けて選んでも読み込めるように
+                if (file) handleImportFile(file);
+              }}
+            />
+            <button type="button" className="btn sm" onClick={() => fileInputRef.current?.click()}>
+              <Icon name="upload" size={14} />
+              KML / KMZ を読み込む
+            </button>
+            <button type="button" className="btn sm" onClick={() => exportPlaces('kml')} disabled={!places.length}>
+              <Icon name="download" size={14} />
+              KML で書き出す
+            </button>
+            <button type="button" className="btn sm" onClick={() => exportPlaces('kmz')} disabled={!places.length}>
+              <Icon name="download" size={14} />
+              KMZ で書き出す
+            </button>
+          </div>
+        </div>
+
+        {importMessage && (
+          <div className={importMessage.kind === 'ok' ? 'import-message ok' : 'import-message error'} role="status">
+            <span>{importMessage.text}</span>
+            <button type="button" className="chip-del" onClick={() => setImportMessage(null)} aria-label="閉じる">
+              <Icon name="close" size={13} />
+            </button>
+          </div>
+        )}
+
+        {importPreview && (
+          <div className="import-panel">
+            <div className="import-head">
+              <span>
+                <b>{importPreview.fileName}</b> から <b className="mono">{importPreview.points.length}</b> 地点が見つかりました
+                {importPreview.skippedNonPoint > 0 && <span className="muted">（線・面 {importPreview.skippedNonPoint} 件は対象外）</span>}
+              </span>
+              <label className="check">
+                <input
+                  type="checkbox"
+                  checked={importPreview.selected.every(Boolean)}
+                  onChange={(e) => toggleImportAll(e.target.checked)}
+                />
+                <span>すべて選択</span>
+              </label>
+            </div>
+            <ul className="import-list">
+              {importPreview.points.map((pt, i) => (
+                <li key={i}>
+                  <label className="import-item">
+                    <input type="checkbox" checked={importPreview.selected[i]} onChange={() => toggleImportPoint(i)} />
+                    <span className="import-name">{pt.name}</span>
+                    <span className="muted mono">{formatLatLon(pt.lat, pt.lon)}</span>
+                    {pt.duplicate && <span className="dup-tag">登録済み</span>}
+                  </label>
+                </li>
+              ))}
+            </ul>
+            <div className="import-actions">
+              <span className="muted">同じ座標の地点が登録済みのものは、最初からチェックを外しています。</span>
+              <div className="input-row">
+                <button type="button" className="btn ghost" onClick={() => setImportPreview(null)}>
+                  キャンセル
+                </button>
+                <button
+                  type="button"
+                  className="btn primary"
+                  onClick={handleRegisterImported}
+                  disabled={!importPreview.selected.some(Boolean)}
+                >
+                  <Icon name="plus" size={14} />
+                  選択した {importPreview.selected.filter(Boolean).length} 地点を登録
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {places.length === 0 ? (
-          <div className="muted">登録された観測地点はありません。上の検索・緯度経度入力・地図クリックから登録してください。</div>
+          <div className="muted">登録された観測地点はありません。上の検索・緯度経度入力・地図クリック、または KML / KMZ の読み込みから登録してください。</div>
         ) : (
           <div className="place-chips">
             {places.map((p) => (
