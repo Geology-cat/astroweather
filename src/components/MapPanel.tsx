@@ -32,6 +32,25 @@ interface ImportPreview {
   skippedNonPoint: number;
 }
 
+/** 登録地点一覧の開閉状態（ブラウザごとに覚えておく） */
+const PLACE_LIST_OPEN_KEY = 'aw.placeListOpen';
+
+function loadPlaceListOpen(): boolean {
+  try {
+    return localStorage.getItem(PLACE_LIST_OPEN_KEY) !== '0';
+  } catch {
+    return true;
+  }
+}
+
+function savePlaceListOpen(open: boolean) {
+  try {
+    localStorage.setItem(PLACE_LIST_OPEN_KEY, open ? '1' : '0');
+  } catch {
+    /* 保存できない環境では開閉を覚えないだけ */
+  }
+}
+
 const KML_ACCEPT = '.kml,.kmz,application/vnd.google-earth.kml+xml,application/vnd.google-earth.kmz';
 
 function isSubmitEnter(e: KeyboardEvent<HTMLInputElement>): boolean {
@@ -66,6 +85,13 @@ export function MapPanel({ dateKey, places, currentPlace, selectedId, onSelectPl
   const [importPreview, setImportPreview] = useState<ImportPreview | null>(null);
   const [importMessage, setImportMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
   const [dragOver, setDragOver] = useState(false);
+  const [placeListOpen, setPlaceListOpen] = useState(loadPlaceListOpen);
+
+  const togglePlaceList = () =>
+    setPlaceListOpen((open) => {
+      savePlaceListOpen(!open);
+      return !open;
+    });
   const lonInputRef = useRef<HTMLInputElement | null>(null);
 
   const allPlaces = useMemo(() => (places.length > 0 ? places : [currentPlace]), [places, currentPlace]);
@@ -439,9 +465,18 @@ export function MapPanel({ dateKey, places, currentPlace, selectedId, onSelectPl
 
       <div className="place-manager">
         <div className="manager-head">
-          <span className="manager-label">
+          <button
+            type="button"
+            className={placeListOpen ? 'manager-toggle is-open' : 'manager-toggle'}
+            onClick={togglePlaceList}
+            aria-expanded={placeListOpen}
+            aria-controls="place-chip-list"
+            title={placeListOpen ? '登録地点の一覧をしまう' : '登録地点の一覧を表示する'}
+          >
+            <Icon name="chevronRight" size={16} className="toggle-chevron" />
             登録地点 <span className="count-badge mono">{places.length}</span>
-          </span>
+            <span className="toggle-hint">{placeListOpen ? 'しまう' : '一覧を表示'}</span>
+          </button>
           <div className="manager-actions">
             <input
               ref={fileInputRef}
@@ -526,10 +561,10 @@ export function MapPanel({ dateKey, places, currentPlace, selectedId, onSelectPl
           </div>
         )}
 
-        {places.length === 0 ? (
+        {!placeListOpen ? null : places.length === 0 ? (
           <div className="muted">登録された観測地点はありません。上の検索・緯度経度入力・地図クリック、または KML / KMZ の読み込みから登録してください。</div>
         ) : (
-          <div className="place-chips">
+          <div className="place-chips" id="place-chip-list">
             {places.map((p) => (
               <span key={p.id} className={p.id === selectedId ? 'place-chip active' : 'place-chip'}>
                 <button type="button" className="chip-select" onClick={() => onSelectPlace(p.id)}>
