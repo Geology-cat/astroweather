@@ -1,6 +1,7 @@
 import type { AstroSummary } from '../lib/astro';
-import { formatDateLong, type DateKey } from '../lib/time';
+import { defaultNightKey, formatDateLong, type DateKey } from '../lib/time';
 import { formatLatLon, type Place } from '../lib/storage';
+import { Icon } from './Icon';
 import { MoonIcon } from './MoonIcon';
 
 interface Props {
@@ -15,25 +16,44 @@ interface Props {
 }
 
 export function Header({ dateKey, onShiftDate, onToday, place, places, currentPlace, onSelectPlace, astro }: Props) {
+  const isTonight = dateKey === defaultNightKey();
+  const illum = Math.round(astro.moonInfo.illumination * 100);
   return (
-    <header className="card header">
-      <div className="header-main">
-        <div className="date-row">
-          <button className="round-btn" onClick={() => onShiftDate(-1)} aria-label="前の日">
-            ‹
+    <header className="topbar">
+      <div className="topbar-inner">
+        <div className="brand" aria-label="AstroWeather">
+          <span className="brand-mark">
+            <Icon name="stars" size={18} />
+          </span>
+          <span className="brand-name">AstroWeather</span>
+        </div>
+
+        <div className="date-nav">
+          <button type="button" className="icon-btn" onClick={() => onShiftDate(-1)} aria-label="前の日">
+            <Icon name="chevronLeft" />
           </button>
-          <h1 className="date-title" onDoubleClick={onToday} title="ダブルクリックで今夜に戻る">
+          <h1 className="date-title mono" onDoubleClick={onToday} title="ダブルクリックで今夜に戻る">
             {formatDateLong(dateKey)}
           </h1>
-          <button className="round-btn" onClick={() => onShiftDate(1)} aria-label="次の日">
-            ›
+          <button type="button" className="icon-btn" onClick={() => onShiftDate(1)} aria-label="次の日">
+            <Icon name="chevronRight" />
+          </button>
+          <button
+            type="button"
+            className={isTonight ? 'today-btn is-hidden' : 'today-btn'}
+            onClick={onToday}
+            tabIndex={isTonight ? -1 : 0}
+            aria-hidden={isTonight}
+          >
+            今夜
           </button>
         </div>
-        <div className="place-row">
-          <span className="place-icon" aria-hidden>
-            {place.id === 'current' ? '➤' : '📍'}
+
+        <div className="place-picker">
+          <span className="place-icon">
+            <Icon name={place.id === 'current' ? 'locate' : 'pin'} size={16} />
           </span>
-          <select className="place-select" value={place.id} onChange={(e) => onSelectPlace(e.target.value)}>
+          <select className="select place-select" value={place.id} onChange={(e) => onSelectPlace(e.target.value)} aria-label="地点">
             <option value={currentPlace.id}>{currentPlace.name}</option>
             {places.map((p) => (
               <option key={p.id} value={p.id}>
@@ -41,14 +61,16 @@ export function Header({ dateKey, onShiftDate, onToday, place, places, currentPl
               </option>
             ))}
           </select>
-          <span className="muted">{formatLatLon(place.lat, place.lon)}</span>
+          <span className="muted mono place-coord">{formatLatLon(place.lat, place.lon)}</span>
         </div>
-      </div>
-      <div className="moon-badge" title={`輝面比 ${Math.round(astro.moonInfo.illumination * 100)}%（正午）`}>
-        <MoonIcon phaseAngle={astro.moonInfo.phaseAngle} size={52} />
-        <div>
-          <div className="moon-badge-label">月齢</div>
-          <div className="moon-badge-value">{astro.moonInfo.age.toFixed(1)}</div>
+
+        <div className="moon-badge" title={`輝面比 ${illum}%（正午）`}>
+          <MoonIcon phaseAngle={astro.moonInfo.phaseAngle} size={38} />
+          <div className="moon-badge-text">
+            <span className="moon-badge-label">月齢</span>
+            <span className="moon-badge-value mono">{astro.moonInfo.age.toFixed(1)}</span>
+          </div>
+          <span className="moon-badge-illum mono">輝面 {illum}%</span>
         </div>
       </div>
     </header>

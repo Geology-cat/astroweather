@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import * as echarts from 'echarts';
 import type { AstroSummary } from '../lib/astro';
 import { MODELS, MODEL_COLOR, MODEL_LABEL, type LocationForecast, type MetricId, type ModelId } from '../lib/forecast';
-import { HOUR_MS, formatHM, jstNoon } from '../lib/time';
+import { HOUR_MS, formatHM, formatMD, jstNoon, toDateKey } from '../lib/time';
+import { CardTitle } from './Icon';
 
 interface Props {
   fc: LocationForecast | null;
@@ -129,6 +130,7 @@ export function DetailForecastPanel({ fc, astro, loading, error, placeName }: Pr
   const [summaryModel, setSummaryModel] = useState<ModelId>('jma_msm');
   const [rangeMode, setRangeMode] = useState<'night' | 'full'>('night');
   const chartRef = useRef<HTMLDivElement | null>(null);
+  const chartInstRef = useRef<echarts.ECharts | null>(null);
 
   const activeMetric = METRICS.find((m) => m.id === metricId) ?? METRICS[1];
 
@@ -137,9 +139,26 @@ export function DetailForecastPanel({ fc, astro, loading, error, placeName }: Pr
   const nightStart = noonMs + 3 * HOUR_MS;
   const nightEnd = noonMs + 21 * HOUR_MS;
 
+  const showChart = mode === 'chart' && fc != null;
+
+  // グラフのインスタンスは表示中は使い回し、項目・期間の切替は setOption だけで反映する（毎回作り直すと重い）
   useEffect(() => {
-    if (mode !== 'chart' || !fc || !chartRef.current) return;
-    const inst = echarts.init(chartRef.current);
+    const el = chartRef.current;
+    if (!showChart || !el) return;
+    const inst = echarts.init(el);
+    chartInstRef.current = inst;
+    const ro = new ResizeObserver(() => inst.resize());
+    ro.observe(el);
+    return () => {
+      ro.disconnect();
+      inst.dispose();
+      chartInstRef.current = null;
+    };
+  }, [showChart]);
+
+  useEffect(() => {
+    const inst = chartInstRef.current;
+    if (!showChart || !inst || !fc) return;
 
     const indices: number[] = [];
     fc.time.forEach((t, i) => {
@@ -155,13 +174,14 @@ export function DetailForecastPanel({ fc, astro, loading, error, placeName }: Pr
       {
         xAxis: seg.start.getTime(),
         itemStyle: {
-          color: seg.moonUp ? 'rgba(250, 227, 158, 0.10)' : 'rgba(173, 153, 255, 0.16)',
+          color: seg.moonUp ? 'rgba(250, 227, 158, 0.08)' : 'rgba(167, 139, 250, 0.13)',
         },
         label: {
-          show: true,
+          // 全期間表示では帯が細く文字が重なるので、夜間表示のときだけ出す
+          show: rangeMode === 'night',
           position: 'insideTop',
           formatter: seg.moonUp ? '月明かり' : '暗夜',
-          color: 'rgba(255,255,255,0.55)',
+          color: 'rgba(226, 232, 245, 0.5)',
           fontSize: 10,
         },
       },
@@ -174,8 +194,9 @@ export function DetailForecastPanel({ fc, astro, loading, error, placeName }: Pr
       smooth: false,
       showSymbol: rangeMode === 'night',
       symbolSize: 5,
-      lineStyle: { width: 2.2, color: MODEL_COLOR[m] },
+      lineStyle: { width: 2, color: MODEL_COLOR[m] },
       itemStyle: { color: MODEL_COLOR[m] },
+      emphasis: { focus: 'series' },
       data: indices.map((i) => {
         const v = metricValue(fc, activeMetric.id, m, i);
         return [fc.time[i], v == null ? null : Number(v.toFixed(activeMetric.digits))];
@@ -183,49 +204,54 @@ export function DetailForecastPanel({ fc, astro, loading, error, placeName }: Pr
       markArea: m === 'jma_msm' && markAreaData.length ? { silent: true, data: markAreaData as never } : undefined,
     }));
 
-    inst.setOption({
-      backgroundColor: 'transparent',
-      tooltip: {
-        trigger: 'axis',
-        backgroundColor: 'rgba(22, 27, 34, 0.94)',
-        borderColor: 'rgba(255,255,255,0.18)',
-        textStyle: { color: '#eef2f6', fontSize: 12 },
-      },
-      legend: {
-        top: 0,
-        textStyle: { color: '#cbd5e1', fontSize: 12 },
-      },
-      grid: { left: 50, right: 18, top: 34, bottom: 32 },
-      xAxis: {
-        type: 'time',
-        min: times[0],
-        max: times[times.length - 1],
-        axisLabel: {
-          color: '#9ca3af',
-          formatter: (val: number) => formatHM(new Date(val)),
+    inst.setOption(
+      {
+        backgroundColor: 'transparent',
+        animationDuration: 300,
+        animationDurationUpdate: 250,
+        textStyle: { fontFamily: 'inherit' },
+        tooltip: {
+          trigger: 'axis',
+          backgroundColor: 'rgba(17, 24, 39, 0.96)',
+          borderColor: 'rgba(148, 163, 200, 0.25)',
+          textStyle: { color: '#e8ecf5', fontSize: 12 },
+          axisPointer: { lineStyle: { color: 'rgba(148, 163, 200, 0.45)' } },
         },
-        axisLine: { lineStyle: { color: 'rgba(255,255,255,0.2)' } },
-        splitLine: { show: true, lineStyle: { color: 'rgba(255,255,255,0.06)' } },
+        legend: {
+          top: 0,
+          icon: 'roundRect',
+          itemWidth: 14,
+          itemHeight: 4,
+          textStyle: { color: '#aab4c8', fontSize: 12 },
+        },
+        grid: { left: 50, right: 18, top: 34, bottom: 30 },
+        xAxis: {
+          type: 'time',
+          min: times[0],
+          max: times[times.length - 1],
+          axisLabel: {
+            color: '#7f8aa3',
+            // 全期間（8日）表示では日付も付ける
+            formatter: (val: number) =>
+              rangeMode === 'full' ? `${formatMD(toDateKey(new Date(val)))} ${formatHM(new Date(val))}` : formatHM(new Date(val)),
+          },
+          axisLine: { lineStyle: { color: 'rgba(148, 163, 200, 0.22)' } },
+          splitLine: { show: true, lineStyle: { color: 'rgba(148, 163, 200, 0.06)' } },
+        },
+        yAxis: {
+          type: 'value',
+          name: `${activeMetric.label} (${activeMetric.unit})`,
+          nameTextStyle: { color: '#7f8aa3', fontSize: 11, align: 'left' },
+          min: activeMetric.min,
+          max: activeMetric.max,
+          axisLabel: { color: '#7f8aa3' },
+          splitLine: { lineStyle: { color: 'rgba(148, 163, 200, 0.08)' } },
+        },
+        series,
       },
-      yAxis: {
-        type: 'value',
-        name: `${activeMetric.label} (${activeMetric.unit})`,
-        nameTextStyle: { color: '#9ca3af', fontSize: 11 },
-        min: activeMetric.min,
-        max: activeMetric.max,
-        axisLabel: { color: '#9ca3af' },
-        splitLine: { lineStyle: { color: 'rgba(255,255,255,0.08)' } },
-      },
-      series,
-    });
-
-    const onResize = () => inst.resize();
-    window.addEventListener('resize', onResize);
-    return () => {
-      window.removeEventListener('resize', onResize);
-      inst.dispose();
-    };
-  }, [mode, fc, activeMetric, rangeMode, astro, nightStart, nightEnd]);
+      { notMerge: true },
+    );
+  }, [showChart, fc, activeMetric, rangeMode, astro, nightStart, nightEnd]);
 
   // ヒートマップ用インデックス（対象日の 17:00 〜 翌 06:00）
   const heatIndices: number[] = [];
@@ -240,7 +266,7 @@ export function DetailForecastPanel({ fc, astro, loading, error, placeName }: Pr
   const renderTimeHeader = (label: string) => (
     <thead>
       <tr>
-        <th>{label}</th>
+        <th className="sticky-col corner">{label}</th>
         {fc &&
           heatIndices.map((i) => {
             const t = fc.time[i];
@@ -250,7 +276,7 @@ export function DetailForecastPanel({ fc, astro, loading, error, placeName }: Pr
             );
             return (
               <th key={t} className={inDark ? 'th-dark' : inNight ? 'th-night' : ''}>
-                <div>{formatHM(new Date(t))}</div>
+                <div className="mono">{formatHM(new Date(t))}</div>
                 <div className="th-tag">{inDark ? '暗夜' : inNight ? '月出' : '薄明'}</div>
               </th>
             );
@@ -261,26 +287,28 @@ export function DetailForecastPanel({ fc, astro, loading, error, placeName }: Pr
 
   return (
     <section className="card">
-      <div className="panel-head">
-        <div>
-          <h2 className="card-title forecast">📈 地点別の詳細予報 — {placeName}</h2>
-          <p className="sub">4モデル（MSM / ECMWF / GFS / ICON）の全取得・計算項目（雲量4種・晴れ度・降水・風速・ガスト・気温・露点・露点差ΔT・湿度・視程）を表示</p>
+      <div className="card-head">
+        <div className="head-text">
+          <CardTitle icon="chart" tone="forecast">
+            地点別の詳細予報<span className="title-sub">{placeName}</span>
+          </CardTitle>
+          <p className="card-desc">4モデル（MSM / ECMWF / GFS / ICON）の全取得・計算項目（雲量4種・晴れ度・降水・風速・ガスト・気温・露点・露点差ΔT・湿度・視程）を表示</p>
         </div>
-        <div className="panel-controls">
-          <div className="seg-group">
-            <button className={mode === 'heatmap' ? 'seg active' : 'seg'} onClick={() => setMode('heatmap')}>
+        <div className="head-controls">
+          <div className="seg-group" role="group" aria-label="表示形式">
+            <button type="button" className={mode === 'heatmap' ? 'seg active' : 'seg'} onClick={() => setMode('heatmap')}>
               ヒートマップ表
             </button>
-            <button className={mode === 'chart' ? 'seg active' : 'seg'} onClick={() => setMode('chart')}>
+            <button type="button" className={mode === 'chart' ? 'seg active' : 'seg'} onClick={() => setMode('chart')}>
               折れ線グラフ
             </button>
           </div>
           {mode === 'chart' && (
-            <div className="seg-group">
-              <button className={rangeMode === 'night' ? 'seg active' : 'seg'} onClick={() => setRangeMode('night')}>
+            <div className="seg-group" role="group" aria-label="表示期間">
+              <button type="button" className={rangeMode === 'night' ? 'seg active' : 'seg'} onClick={() => setRangeMode('night')}>
                 夜間（15時〜翌9時）
               </button>
-              <button className={rangeMode === 'full' ? 'seg active' : 'seg'} onClick={() => setRangeMode('full')}>
+              <button type="button" className={rangeMode === 'full' ? 'seg active' : 'seg'} onClick={() => setRangeMode('full')}>
                 全期間（8日）
               </button>
             </div>
@@ -294,66 +322,74 @@ export function DetailForecastPanel({ fc, astro, loading, error, placeName }: Pr
           <button
             key={m.id}
             type="button"
+            role="tab"
+            aria-selected={m.id === metricId}
             className={m.id === metricId ? 'metric-pill active' : 'metric-pill'}
             onClick={() => setMetricId(m.id)}
           >
-            {m.shortLabel} <span className="sub">({m.unit})</span>
+            {m.shortLabel} <span className="unit">{m.unit}</span>
           </button>
         ))}
       </div>
 
       {error && <div className="error">{error}</div>}
-      {loading && !fc && <div className="sub">予報を取得中…</div>}
+      {loading && !fc && <div className="loading-line">予報を取得中…</div>}
 
       {fc && mode === 'heatmap' && (
-        <div className="heatmap-wrap">
-          <div className="sub" style={{ marginBottom: 6 }}>
-            選択中の項目: <b>{activeMetric.label}</b>（単位: {activeMetric.unit}）— 4モデル比較
+        <>
+          <div className="table-caption">
+            <span>
+              <b>{activeMetric.label}</b>
+              <span className="muted">（単位: {activeMetric.unit}）— 4モデル比較</span>
+            </span>
           </div>
-          <table className="heatmap-table">
-            {renderTimeHeader('モデル / 時刻')}
-            <tbody>
-              {MODELS.map((m) => {
-                const allNull = heatIndices.every((i) => metricValue(fc, activeMetric.id, m, i) == null);
-                return (
-                  <tr key={m}>
-                    <td className="model-cell">
-                      <span className="model-dot" style={{ background: MODEL_COLOR[m] }} />
-                      <b>{MODEL_LABEL[m]}</b>
-                      {allNull && <span className="sub">（対象外/期間外）</span>}
-                    </td>
-                    {heatIndices.map((i) => {
-                      const val = metricValue(fc, activeMetric.id, m, i);
-                      const precip = fc.series.precipitation?.[m]?.[i];
-                      const style = cellStyle(activeMetric.id, val, precip);
-                      const showRainMark =
-                        (activeMetric.id.startsWith('cloud_') || activeMetric.id === 'clear_score') && precip != null && precip >= 0.1;
-                      return (
-                        <td
-                          key={i}
-                          className="hm-cell"
-                          style={style}
-                          title={`${MODEL_LABEL[m]} ${formatHM(new Date(fc.time[i]))}: ${activeMetric.shortLabel} ${
-                            val == null ? '—' : val.toFixed(activeMetric.digits)
-                          }${activeMetric.unit}`}
-                        >
-                          {val == null ? '—' : val.toFixed(activeMetric.digits)}
-                          {showRainMark ? '☂' : ''}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+          <div className="table-scroll">
+            <table className="heatmap-table">
+              {renderTimeHeader('モデル / 時刻')}
+              <tbody>
+                {MODELS.map((m) => {
+                  const allNull = heatIndices.every((i) => metricValue(fc, activeMetric.id, m, i) == null);
+                  return (
+                    <tr key={m}>
+                      <td className="model-cell sticky-col">
+                        <span className="model-dot" style={{ background: MODEL_COLOR[m] }} />
+                        <b>{MODEL_LABEL[m]}</b>
+                        {allNull && <span className="muted">（対象外/期間外）</span>}
+                      </td>
+                      {heatIndices.map((i) => {
+                        const val = metricValue(fc, activeMetric.id, m, i);
+                        const precip = fc.series.precipitation?.[m]?.[i];
+                        const style = cellStyle(activeMetric.id, val, precip);
+                        const showRainMark =
+                          (activeMetric.id.startsWith('cloud_') || activeMetric.id === 'clear_score') && precip != null && precip >= 0.1;
+                        return (
+                          <td
+                            key={i}
+                            className="hm-cell mono"
+                            style={style}
+                            title={`${MODEL_LABEL[m]} ${formatHM(new Date(fc.time[i]))}: ${activeMetric.shortLabel} ${
+                              val == null ? '—' : val.toFixed(activeMetric.digits)
+                            }${activeMetric.unit}`}
+                          >
+                            {val == null ? '—' : val.toFixed(activeMetric.digits)}
+                            {showRainMark ? '☂' : ''}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
 
           {/* 全13項目の一覧表（常時表示） */}
-          <div className="all-metrics-bar">
-            <span className="sub">
-              <b>全13項目の一覧</b>（行をクリックすると上の4モデル比較表もその項目に切り替わります）
+          <div className="table-caption all-metrics-bar">
+            <span>
+              <b>全13項目の一覧</b>
+              <span className="muted">（行をクリックすると上の4モデル比較表もその項目に切り替わります）</span>
             </span>
-            <div className="seg-group">
+            <div className="seg-group" role="group" aria-label="一覧のモデル">
               {MODELS.map((m) => (
                 <button
                   key={m}
@@ -367,38 +403,39 @@ export function DetailForecastPanel({ fc, astro, loading, error, placeName }: Pr
             </div>
           </div>
 
-          <table className="heatmap-table" style={{ marginTop: 8 }}>
-            {renderTimeHeader(`${MODEL_LABEL[summaryModel]} 全項目 / 時刻`)}
-            <tbody>
-              {METRICS.map((met) => (
-                <tr
-                  key={met.id}
-                  className={met.id === metricId ? 'selected-row' : ''}
-                  onClick={() => setMetricId(met.id)}
-                  style={{ cursor: 'pointer' }}
-                  title="クリックで上の4モデル比較表をこの項目に切替"
-                >
-                  <td className="model-cell">
-                    <b>{met.shortLabel}</b> <span className="sub">({met.unit})</span>
-                  </td>
-                  {heatIndices.map((i) => {
-                    const val = metricValue(fc, met.id, summaryModel, i);
-                    const precip = fc.series.precipitation?.[summaryModel]?.[i];
-                    const style = cellStyle(met.id, val, precip);
-                    return (
-                      <td key={i} className="hm-cell" style={style}>
-                        {val == null ? '—' : val.toFixed(met.digits)}
-                      </td>
-                    );
-                  })}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+          <div className="table-scroll">
+            <table className="heatmap-table">
+              {renderTimeHeader(`${MODEL_LABEL[summaryModel]} 全項目 / 時刻`)}
+              <tbody>
+                {METRICS.map((met) => (
+                  <tr
+                    key={met.id}
+                    className={met.id === metricId ? 'clickable is-selected' : 'clickable'}
+                    onClick={() => setMetricId(met.id)}
+                    title="クリックで上の4モデル比較表をこの項目に切替"
+                  >
+                    <td className="model-cell sticky-col">
+                      <b>{met.shortLabel}</b> <span className="muted">({met.unit})</span>
+                    </td>
+                    {heatIndices.map((i) => {
+                      const val = metricValue(fc, met.id, summaryModel, i);
+                      const precip = fc.series.precipitation?.[summaryModel]?.[i];
+                      const style = cellStyle(met.id, val, precip);
+                      return (
+                        <td key={i} className="hm-cell mono" style={style}>
+                          {val == null ? '—' : val.toFixed(met.digits)}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
 
-      {fc && mode === 'chart' && <div ref={chartRef} className="echart-box" />}
+      {showChart && <div ref={chartRef} className="echart-box" />}
 
       <p className="note">
         ※ 予報はモデル格子（MSM約5km・ECMWF約9km・ICON約11km・GFS約13〜25km）の値であり、尾根と谷の局地差までは表せません。MSMの予報期間は約4日間、ガスト・視程は対応モデルのみ表示されます。

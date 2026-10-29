@@ -13,12 +13,31 @@ interface Props {
   showAxis?: boolean;
 }
 
+/** 3 時間ごとの目盛り（ストリップの下や表のヘッダーに置く） */
+export function StripAxis({ axisStart, axisEnd }: { axisStart: number; axisEnd: number }) {
+  const span = axisEnd - axisStart;
+  const ticks: number[] = [];
+  for (let t = Math.ceil(axisStart / (3 * HOUR_MS)) * 3 * HOUR_MS; t <= axisEnd; t += 3 * HOUR_MS) ticks.push(t);
+  return (
+    <div className="strip-axis mono" aria-hidden>
+      {ticks.map((t) => {
+        const p = ((t - axisStart) / span) * 100;
+        // 両端のラベルははみ出さないよう内側に寄せる
+        const shift = p < 4 ? '0%' : p > 96 ? '-100%' : '-50%';
+        return (
+          <span key={t} style={{ left: `${p}%`, transform: `translateX(${shift})` }}>
+            {formatHM(new Date(t))}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
 /** 晴れ度の時間帯ストリップ。各毎時値は前後 30 分を代表するセルとして描く */
 export function ClearStrip({ hours, axisStart, axisEnd, windowStart, windowEnd, showAxis }: Props) {
   const span = axisEnd - axisStart;
   const pct = (t: number) => `${((t - axisStart) / span) * 100}%`;
-  const ticks: number[] = [];
-  for (let t = Math.ceil(axisStart / (3 * HOUR_MS)) * 3 * HOUR_MS; t <= axisEnd; t += 3 * HOUR_MS) ticks.push(t);
   return (
     <div className="strip-wrap">
       <div className="strip">
@@ -41,15 +60,7 @@ export function ClearStrip({ hours, axisStart, axisEnd, windowStart, windowEnd, 
         <div className="strip-edge" style={{ left: pct(windowStart) }} />
         <div className="strip-edge" style={{ left: pct(windowEnd) }} />
       </div>
-      {showAxis && (
-        <div className="strip-axis">
-          {ticks.map((t) => (
-            <span key={t} style={{ left: pct(t) }}>
-              {formatHM(new Date(t))}
-            </span>
-          ))}
-        </div>
-      )}
+      {showAxis && <StripAxis axisStart={axisStart} axisEnd={axisEnd} />}
     </div>
   );
 }
