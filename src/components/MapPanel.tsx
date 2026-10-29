@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { nightWindow } from '../lib/astro';
 import { COMPARE_VARS } from '../lib/forecast';
 import { parseLatLonInput, searchPlaceCandidates, type GeocodeCandidate } from '../lib/geocode';
@@ -17,6 +17,14 @@ interface Props {
   onSelectPlace: (id: string) => void;
   onAddPlace: (place: Place) => void;
   onRemovePlace: (id: string) => void;
+}
+
+/**
+ * 確定操作としての Enter か。日本語入力（IME）の変換確定に使う Enter は除く
+ * （Safari は確定直後の keydown で isComposing が false になるため keyCode 229 も見る）。
+ */
+function isSubmitEnter(e: KeyboardEvent<HTMLInputElement>): boolean {
+  return e.key === 'Enter' && !e.nativeEvent.isComposing && e.keyCode !== 229;
 }
 
 /** 観測地点の登録・管理専用マップパネル */
@@ -40,6 +48,8 @@ export function MapPanel({ dateKey, places, currentPlace, selectedId, onSelectPl
   const [latInput, setLatInput] = useState('');
   const [lonInput, setLonInput] = useState('');
   const [coordError, setCoordError] = useState<string | null>(null);
+  const latInputRef = useRef<HTMLInputElement | null>(null);
+  const lonInputRef = useRef<HTMLInputElement | null>(null);
 
   const allPlaces = useMemo(() => (places.length > 0 ? places : [currentPlace]), [places, currentPlace]);
   const { data: forecasts } = useForecasts(allPlaces, COMPARE_VARS);
@@ -156,6 +166,21 @@ export function MapPanel({ dateKey, places, currentPlace, selectedId, onSelectPl
     setClickedLatLon(null);
   };
 
+  // 緯度・経度フォームの Enter：未入力の欄が残っていれば登録せず次の空欄へ移る
+  const handleCoordKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (!isSubmitEnter(e)) return;
+    e.preventDefault();
+    if (!latInput.trim()) {
+      latInputRef.current?.focus();
+      return;
+    }
+    if (!lonInput.trim()) {
+      lonInputRef.current?.focus();
+      return;
+    }
+    handleAddManualCoord();
+  };
+
   const handleLatChange = (val: string) => {
     if (val.includes(',') || val.includes('，')) {
       const parts = val.split(/[,，]/).map((s) => s.trim());
@@ -193,7 +218,7 @@ export function MapPanel({ dateKey, places, currentPlace, selectedId, onSelectPl
               placeholder="例：北海道芦別市 / 支笏湖 / 美瑛町白金 / 大雪山旭岳…"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+              onKeyDown={(e) => isSubmitEnter(e) && handleSearch()}
               aria-label="住所・地名・施設名"
             />
             <button type="button" className="btn primary" onClick={handleSearch} disabled={searching || !searchQuery.trim()}>
@@ -251,7 +276,7 @@ export function MapPanel({ dateKey, places, currentPlace, selectedId, onSelectPl
               placeholder="地点名（任意）"
               value={manualName}
               onChange={(e) => setManualName(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleAddManualCoord()}
+              onKeyDown={handleCoordKeyDown}
               aria-label="地点名"
             />
             <input
@@ -259,9 +284,10 @@ export function MapPanel({ dateKey, places, currentPlace, selectedId, onSelectPl
               inputMode="decimal"
               className="input coord-input mono"
               placeholder="緯度 (例: 43.4792)"
+              ref={latInputRef}
               value={latInput}
               onChange={(e) => handleLatChange(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleAddManualCoord()}
+              onKeyDown={handleCoordKeyDown}
               aria-label="緯度"
             />
             <input
@@ -269,9 +295,10 @@ export function MapPanel({ dateKey, places, currentPlace, selectedId, onSelectPl
               inputMode="decimal"
               className="input coord-input mono"
               placeholder="経度 (例: 142.1478)"
+              ref={lonInputRef}
               value={lonInput}
               onChange={(e) => setLonInput(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleAddManualCoord()}
+              onKeyDown={handleCoordKeyDown}
               aria-label="経度"
             />
             <button type="button" className="btn primary" onClick={handleAddManualCoord} disabled={!latInput.trim()}>
@@ -307,7 +334,7 @@ export function MapPanel({ dateKey, places, currentPlace, selectedId, onSelectPl
               placeholder="観測地点の名前を入力…"
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
-              onKeyDown={(e) => e.key === 'Enter' && handleAddClicked()}
+              onKeyDown={(e) => isSubmitEnter(e) && handleAddClicked()}
               aria-label="観測地点の名前"
             />
             <button type="button" className="btn primary" onClick={handleAddClicked}>
