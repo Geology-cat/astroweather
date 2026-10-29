@@ -126,7 +126,6 @@ function cellStyle(metric: MetricId, val: number | null, precip: number | null |
 export function DetailForecastPanel({ fc, astro, loading, error, placeName }: Props) {
   const [mode, setMode] = useState<ViewMode>('heatmap');
   const [metricId, setMetricId] = useState<MetricId>('cloud_cover');
-  const [showAllMetrics, setShowAllMetrics] = useState<boolean>(false);
   const [summaryModel, setSummaryModel] = useState<ModelId>('jma_msm');
   const [rangeMode, setRangeMode] = useState<'night' | 'full'>('night');
   const chartRef = useRef<HTMLDivElement | null>(null);
@@ -349,57 +348,53 @@ export function DetailForecastPanel({ fc, astro, loading, error, placeName }: Pr
             </tbody>
           </table>
 
-          {/* 全項目を一度に並べて見る展開テーブル */}
+          {/* 全13項目の一覧表（常時表示） */}
           <div className="all-metrics-bar">
-            <button type="button" className="btn" onClick={() => setShowAllMetrics((v) => !v)}>
-              {showAllMetrics ? '▲ 全項目一覧表を閉じる' : '▼ 全13項目をまとめて一覧表示'}
-            </button>
-            {showAllMetrics && (
-              <div className="seg-group">
-                {MODELS.map((m) => (
-                  <button
-                    key={m}
-                    type="button"
-                    className={summaryModel === m ? 'seg active' : 'seg'}
-                    onClick={() => setSummaryModel(m)}
-                  >
-                    {MODEL_LABEL[m]}
-                  </button>
-                ))}
-              </div>
-            )}
+            <span className="sub">
+              <b>全13項目の一覧</b>（行をクリックすると上の4モデル比較表もその項目に切り替わります）
+            </span>
+            <div className="seg-group">
+              {MODELS.map((m) => (
+                <button
+                  key={m}
+                  type="button"
+                  className={summaryModel === m ? 'seg active' : 'seg'}
+                  onClick={() => setSummaryModel(m)}
+                >
+                  {MODEL_LABEL[m]}
+                </button>
+              ))}
+            </div>
           </div>
 
-          {showAllMetrics && (
-            <table className="heatmap-table" style={{ marginTop: 8 }}>
-              {renderTimeHeader(`${MODEL_LABEL[summaryModel]} 全項目 / 時刻`)}
-              <tbody>
-                {METRICS.map((met) => (
-                  <tr
-                    key={met.id}
-                    className={met.id === metricId ? 'selected-row' : ''}
-                    onClick={() => setMetricId(met.id)}
-                    style={{ cursor: 'pointer' }}
-                    title="クリックで上の4モデル比較表をこの項目に切替"
-                  >
-                    <td className="model-cell">
-                      <b>{met.shortLabel}</b> <span className="sub">({met.unit})</span>
-                    </td>
-                    {heatIndices.map((i) => {
-                      const val = metricValue(fc, met.id, summaryModel, i);
-                      const precip = fc.series.precipitation?.[summaryModel]?.[i];
-                      const style = cellStyle(met.id, val, precip);
-                      return (
-                        <td key={i} className="hm-cell" style={style}>
-                          {val == null ? '—' : val.toFixed(met.digits)}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
+          <table className="heatmap-table" style={{ marginTop: 8 }}>
+            {renderTimeHeader(`${MODEL_LABEL[summaryModel]} 全項目 / 時刻`)}
+            <tbody>
+              {METRICS.map((met) => (
+                <tr
+                  key={met.id}
+                  className={met.id === metricId ? 'selected-row' : ''}
+                  onClick={() => setMetricId(met.id)}
+                  style={{ cursor: 'pointer' }}
+                  title="クリックで上の4モデル比較表をこの項目に切替"
+                >
+                  <td className="model-cell">
+                    <b>{met.shortLabel}</b> <span className="sub">({met.unit})</span>
+                  </td>
+                  {heatIndices.map((i) => {
+                    const val = metricValue(fc, met.id, summaryModel, i);
+                    const precip = fc.series.precipitation?.[summaryModel]?.[i];
+                    const style = cellStyle(met.id, val, precip);
+                    return (
+                      <td key={i} className="hm-cell" style={style}>
+                        {val == null ? '—' : val.toFixed(met.digits)}
+                      </td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
 
