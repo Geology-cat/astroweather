@@ -4,6 +4,7 @@
 
 - **公開URL（GitHub Pages）**: https://geology-cat.github.io/astroweather/
 - **要件定義**: [要件定義.md](./要件定義.md)
+- **解説ページ**: https://geology-cat.github.io/astroweather/guide.html （夜間晴天スコアの算出方法、Open-Meteo と 4 つの数値予報モデルの解説。ソースは `public/guide.html`）
 
 ## 主な機能
 
