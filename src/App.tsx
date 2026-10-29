@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { astroSummary } from './lib/astro';
 import { DETAIL_VARS } from './lib/forecast';
 import { computeNightScore } from './lib/score';
@@ -43,10 +43,11 @@ export function App() {
     return places.find((p) => p.id === selectedId) ?? currentPlace;
   }, [selectedId, places, currentPlace]);
 
-  const handleSelectPlace = (id: string) => {
+  // 地図マーカーの作り直しを避けるため、参照を固定しておく
+  const handleSelectPlace = useCallback((id: string) => {
     setSelectedId(id);
     saveSelected(id);
-  };
+  }, []);
 
   const handleAddPlace = (place: Place) => {
     setPlaces((prev) => {
@@ -76,7 +77,7 @@ export function App() {
   }, [detailFc, astro.night]);
 
   return (
-    <div className="app-shell">
+    <div className="app">
       <Header
         dateKey={dateKey}
         onShiftDate={(d) => setDateKey((k) => addDays(k, d))}
@@ -88,71 +89,68 @@ export function App() {
         astro={astro}
       />
 
-      <div className="dashboard-top">
-        <div className="col-astro">
+      <main className="app-shell">
+        <div className="overview">
+          <ScoreCard score={activeScore} fc={detailFc} win={astro.night} loading={detailLoading} error={detailError} />
           <AstroPanel astro={astro} />
         </div>
-        <div className="col-score">
-          <ScoreCard score={activeScore} fc={detailFc} win={astro.night} loading={detailLoading} error={detailError} />
-        </div>
-      </div>
 
-      <MapPanel
-        dateKey={dateKey}
-        places={places}
-        currentPlace={currentPlace}
-        selectedId={activePlace.id}
-        onSelectPlace={handleSelectPlace}
-        onAddPlace={handleAddPlace}
-        onRemovePlace={handleRemovePlace}
-      />
+        <MapPanel
+          dateKey={dateKey}
+          places={places}
+          currentPlace={currentPlace}
+          selectedId={activePlace.id}
+          onSelectPlace={handleSelectPlace}
+          onAddPlace={handleAddPlace}
+          onRemovePlace={handleRemovePlace}
+        />
 
-      <ComparePanel
-        dateKey={dateKey}
-        places={places}
-        currentPlace={currentPlace}
-        selectedId={activePlace.id}
-        onSelectPlace={handleSelectPlace}
-      />
+        <ComparePanel
+          dateKey={dateKey}
+          places={places}
+          currentPlace={currentPlace}
+          selectedId={activePlace.id}
+          onSelectPlace={handleSelectPlace}
+        />
 
-      <DetailForecastPanel
-        fc={detailFc}
-        astro={astro}
-        loading={detailLoading}
-        error={detailError}
-        placeName={activePlace.name}
-      />
+        <DetailForecastPanel
+          fc={detailFc}
+          astro={astro}
+          loading={detailLoading}
+          error={detailError}
+          placeName={activePlace.name}
+        />
 
-      <CloudMapPanel
-        dateKey={dateKey}
-        places={places}
-        currentPlace={currentPlace}
-        selectedId={activePlace.id}
-        onSelectPlace={handleSelectPlace}
-      />
+        <CloudMapPanel
+          dateKey={dateKey}
+          places={places}
+          currentPlace={currentPlace}
+          selectedId={activePlace.id}
+          onSelectPlace={handleSelectPlace}
+        />
 
-      <footer className="app-footer">
-        <span>
-          気象・空間データ:{' '}
-          <a href="https://open-meteo.com/" target="_blank" rel="noreferrer">
-            Open-Meteo.com
-          </a>{' '}
-          /{' '}
-          <a href="https://registry.opendata.aws/open-meteo/" target="_blank" rel="noreferrer">
-            Open-Meteo Spatial Data
-          </a>{' '}
-          (CC BY 4.0 / JMA MSM, ECMWF IFS, NOAA GFS, DWD ICON)
-        </span>
-        <span>
-          地図:{' '}
-          <a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noreferrer">
-            国土地理院（地理院タイル）
-          </a>{' '}
-          / © OpenStreetMap contributors
-        </span>
-        <span>天文計算: Astronomy Engine (ブラウザ内計算)</span>
-      </footer>
+        <footer className="app-footer">
+          <span>
+            気象・空間データ:{' '}
+            <a href="https://open-meteo.com/" target="_blank" rel="noreferrer">
+              Open-Meteo.com
+            </a>{' '}
+            /{' '}
+            <a href="https://registry.opendata.aws/open-meteo/" target="_blank" rel="noreferrer">
+              Open-Meteo Spatial Data
+            </a>{' '}
+            (CC BY 4.0 / JMA MSM, ECMWF IFS, NOAA GFS, DWD ICON)
+          </span>
+          <span>
+            地図:{' '}
+            <a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noreferrer">
+              国土地理院（地理院タイル）
+            </a>{' '}
+            / © OpenStreetMap contributors
+          </span>
+          <span>天文計算: Astronomy Engine (ブラウザ内計算)</span>
+        </footer>
+      </main>
     </div>
   );
 }
-

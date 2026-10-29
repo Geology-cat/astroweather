@@ -1,13 +1,13 @@
-import { useEffect, useRef, useState } from 'react';
-import * as maplibregl from 'maplibre-gl';
-import 'maplibre-gl/dist/maplibre-gl.css';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { nightWindow } from '../lib/astro';
 import { COMPARE_VARS } from '../lib/forecast';
 import { parseLatLonInput, searchPlaceCandidates, type GeocodeCandidate } from '../lib/geocode';
+import { PIN_OFFSET, TILE_CONFIG, TILE_IDS, baseStyle, createPinMarker, maplibregl, type TileLayerId } from '../lib/maplibre';
 import { computeNightScore, scoreColor } from '../lib/score';
 import { formatLatLon, newPlaceId, type Place } from '../lib/storage';
 import type { DateKey } from '../lib/time';
 import { useForecasts } from '../lib/useForecasts';
+import { CardTitle, Icon } from './Icon';
 
 interface Props {
   dateKey: DateKey;
@@ -17,58 +17,6 @@ interface Props {
   onSelectPlace: (id: string) => void;
   onAddPlace: (place: Place) => void;
   onRemovePlace: (id: string) => void;
-}
-
-type TileLayerId = 'osm' | 'pale' | 'hillshade' | 'photo';
-
-const TILE_CONFIG: Record<TileLayerId, { label: string; tiles: string[]; attribution: string; maxzoom: number }> = {
-  osm: {
-    label: 'OpenStreetMap',
-    tiles: ['https://tile.openstreetmap.org/{z}/{x}/{y}.png'],
-    attribution: '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noreferrer">OpenStreetMap</a> contributors',
-    maxzoom: 19,
-  },
-  pale: {
-    label: '地理院 淡色地図',
-    tiles: ['https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png'],
-    attribution: '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noreferrer">地理院タイル（淡色地図）</a>',
-    maxzoom: 18,
-  },
-  hillshade: {
-    label: '地理院 陰影起伏図',
-    tiles: ['https://cyberjapandata.gsi.go.jp/xyz/hillshademap/{z}/{x}/{y}.png'],
-    attribution: '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noreferrer">地理院タイル（陰影起伏図）</a>',
-    maxzoom: 16,
-  },
-  photo: {
-    label: '地理院 航空写真',
-    tiles: ['https://cyberjapandata.gsi.go.jp/xyz/seamlessphoto/{z}/{x}/{y}.jpg'],
-    attribution: '<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noreferrer">地理院タイル（写真）</a>',
-    maxzoom: 18,
-  },
-};
-
-function makeStyle(layerId: TileLayerId): maplibregl.StyleSpecification {
-  const cfg = TILE_CONFIG[layerId];
-  return {
-    version: 8,
-    sources: {
-      base: {
-        type: 'raster',
-        tiles: cfg.tiles,
-        tileSize: 256,
-        attribution: cfg.attribution,
-        maxzoom: cfg.maxzoom,
-      },
-    },
-    layers: [
-      {
-        id: 'base-layer',
-        type: 'raster',
-        source: 'base',
-      },
-    ],
-  };
 }
 
 /** 観測地点の登録・管理専用マップパネル */
@@ -93,7 +41,7 @@ export function MapPanel({ dateKey, places, currentPlace, selectedId, onSelectPl
   const [lonInput, setLonInput] = useState('');
   const [coordError, setCoordError] = useState<string | null>(null);
 
-  const allPlaces = places.length > 0 ? places : [currentPlace];
+  const allPlaces = useMemo(() => (places.length > 0 ? places : [currentPlace]), [places, currentPlace]);
   const { data: forecasts } = useForecasts(allPlaces, COMPARE_VARS);
 
   useEffect(() => {
@@ -101,7 +49,7 @@ export function MapPanel({ dateKey, places, currentPlace, selectedId, onSelectPl
     const selected = allPlaces.find((p) => p.id === selectedId) ?? currentPlace;
     const map = new maplibregl.Map({
       container: containerRef.current,
-      style: makeStyle(tileId),
+      style: baseStyle(tileId),
       center: [selected.lon, selected.lat],
       zoom: 6.5,
     });
@@ -121,9 +69,13 @@ export function MapPanel({ dateKey, places, currentPlace, selectedId, onSelectPl
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // ベース地図の切替（初回は生成時のスタイルをそのまま使う）
+  const appliedTileRef = useRef<TileLayerId>(tileId);
   useEffect(() => {
-    if (!mapRef.current) return;
-    mapRef.current.setStyle(makeStyle(tileId));
+    const map = mapRef.current;
+    if (!map || appliedTileRef.current === tileId) return;
+    appliedTileRef.current = tileId;
+    map.setStyle(baseStyle(tileId));
   }, [tileId]);
 
   useEffect(() => {
@@ -148,17 +100,14 @@ export function MapPanel({ dateKey, places, currentPlace, selectedId, onSelectPl
       const sc = ns?.score ?? null;
       const col = scoreColor(sc);
 
-      const el = document.createElement('button');
-      el.type = 'button';
-      el.className = p.id === selectedId ? 'map-pin active' : 'map-pin';
-      el.style.setProperty('--pin-color', col);
-      el.innerHTML = `<span class="pin-bubble"><span class="pin-badge">${sc ?? '—'}</span><span class="pin-label">${p.name}</span></span><span class="pin-stem"></span><span class="pin-tip"></span>`;
-      el.onclick = (ev) => {
-        ev.stopPropagation();
-        onSelectPlace(p.id);
-      };
-
-      const marker = new maplibregl.Marker({ element: el, anchor: 'bottom' }).setLngLat([p.lon, p.lat]).addTo(map);
+      const el = createPinMarker({
+        label: p.name,
+        badge: sc == null ? '—' : String(sc),
+        color: col,
+        active: p.id === selectedId,
+        onClick: () => onSelectPlace(p.id),
+      });
+      const marker = new maplibregl.Marker({ element: el, anchor: 'bottom', offset: PIN_OFFSET }).setLngLat([p.lon, p.lat]).addTo(map);
       markersRef.current.push(marker);
     });
   }, [allPlaces, forecasts, dateKey, selectedId, onSelectPlace]);
@@ -221,65 +170,68 @@ export function MapPanel({ dateKey, places, currentPlace, selectedId, onSelectPl
 
   return (
     <section className="card">
-      <div className="panel-head">
-        <div>
-          <h2 className="card-title map">📍 観測地点Map</h2>
-          <p className="sub">① 住所・地名検索、② 緯度・経度の直接入力、③ 地図クリック の3通りで観測地点を登録・削除できます。</p>
-        </div>
-        <div className="panel-controls">
-          <select className="ctrl-select" value={tileId} onChange={(e) => setTileId(e.target.value as TileLayerId)} aria-label="地図タイル切替">
-            {(Object.keys(TILE_CONFIG) as TileLayerId[]).map((k) => (
-              <option key={k} value={k}>
-                {TILE_CONFIG[k].label}
-              </option>
-            ))}
-          </select>
+      <div className="card-head">
+        <div className="head-text">
+          <CardTitle icon="pin" tone="map">
+            観測地点Map
+          </CardTitle>
+          <p className="card-desc">① 住所・地名検索、② 緯度・経度の直接入力、③ 地図クリック の3通りで観測地点を登録・削除できます。</p>
         </div>
       </div>
 
       {/* 地点登録フォーム（住所・地名検索 ＆ 緯度経度直接入力） */}
       <div className="place-add-grid">
-        <div className="place-add-box">
-          <div className="add-box-title">🔍 住所・地名・施設名から検索して登録</div>
-          <div className="add-row">
+        <div className="field-box">
+          <div className="field-title">
+            <Icon name="search" size={15} />
+            住所・地名・施設名から検索して登録
+          </div>
+          <div className="input-row">
             <input
               type="text"
-              className="text-input grow"
+              className="input grow"
               placeholder="例：北海道芦別市 / 支笏湖 / 美瑛町白金 / 大雪山旭岳…"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+              aria-label="住所・地名・施設名"
             />
             <button type="button" className="btn primary" onClick={handleSearch} disabled={searching || !searchQuery.trim()}>
               {searching ? '検索中…' : '検索'}
             </button>
             {candidates.length > 0 && (
-              <button type="button" className="btn" onClick={() => setCandidates([])}>
+              <button type="button" className="btn ghost" onClick={() => setCandidates([])}>
                 クリア
               </button>
             )}
           </div>
-          {searchError && <div className="sub" style={{ color: '#fca5a5', marginTop: 4 }}>{searchError}</div>}
+          {searchError && <div className="field-error">{searchError}</div>}
           {candidates.length > 0 && (
             <ul className="candidate-list">
               {candidates.map((c, idx) => (
                 <li key={`${c.lat}-${c.lon}-${idx}`} className="candidate-item">
-                  <div className="cand-info" onClick={() => mapRef.current?.flyTo({ center: [c.lon, c.lat], zoom: 11, duration: 500 })}>
-                    <div className="cand-name">{c.name}</div>
-                    <div className="sub">
-                      {c.detail} — <span className="mono">{formatLatLon(c.lat, c.lon)}</span>
-                    </div>
-                  </div>
                   <button
                     type="button"
-                    className="btn primary"
+                    className="cand-info"
+                    onClick={() => mapRef.current?.flyTo({ center: [c.lon, c.lat], zoom: 11, duration: 500 })}
+                    title="地図でこの場所を表示"
+                  >
+                    <span className="cand-name">{c.name}</span>
+                    <span className="muted">
+                      {c.detail} — <span className="mono">{formatLatLon(c.lat, c.lon)}</span>
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    className="btn primary sm"
                     onClick={() => {
                       registerPlace(c.name, c.lat, c.lon);
                       setCandidates([]);
                       setSearchQuery('');
                     }}
                   >
-                    ＋ 登録
+                    <Icon name="plus" size={14} />
+                    登録
                   </button>
                 </li>
               ))}
@@ -287,77 +239,100 @@ export function MapPanel({ dateKey, places, currentPlace, selectedId, onSelectPl
           )}
         </div>
 
-        <div className="place-add-box">
-          <div className="add-box-title">🧭 緯度・経度を入力して登録（カンマ区切りペースト可）</div>
-          <div className="add-row">
+        <div className="field-box">
+          <div className="field-title">
+            <Icon name="compass" size={15} />
+            緯度・経度を入力して登録<span className="muted">（カンマ区切りペースト可）</span>
+          </div>
+          <div className="input-row">
             <input
               type="text"
-              className="text-input"
+              className="input name-input"
               placeholder="地点名（任意）"
               value={manualName}
               onChange={(e) => setManualName(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleAddManualCoord()}
+              aria-label="地点名"
             />
             <input
               type="text"
               inputMode="decimal"
-              className="text-input coord-input mono"
+              className="input coord-input mono"
               placeholder="緯度 (例: 43.4792)"
               value={latInput}
               onChange={(e) => handleLatChange(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleAddManualCoord()}
+              aria-label="緯度"
             />
             <input
               type="text"
               inputMode="decimal"
-              className="text-input coord-input mono"
+              className="input coord-input mono"
               placeholder="経度 (例: 142.1478)"
               value={lonInput}
               onChange={(e) => setLonInput(e.target.value)}
               onKeyDown={(e) => e.key === 'Enter' && handleAddManualCoord()}
+              aria-label="経度"
             />
             <button type="button" className="btn primary" onClick={handleAddManualCoord} disabled={!latInput.trim()}>
-              ＋ 登録
+              <Icon name="plus" size={14} />
+              登録
             </button>
           </div>
-          {coordError && <div className="sub" style={{ color: '#fca5a5', marginTop: 4 }}>{coordError}</div>}
+          {coordError && <div className="field-error">{coordError}</div>}
         </div>
       </div>
 
-      <div ref={containerRef} className="map-box cloud-map-large" />
+      <div className="map-frame">
+        <div ref={containerRef} className="map-box" />
+        <select className="select map-overlay-select" value={tileId} onChange={(e) => setTileId(e.target.value as TileLayerId)} aria-label="地図タイル切替">
+          {TILE_IDS.map((k) => (
+            <option key={k} value={k}>
+              {TILE_CONFIG[k].label}
+            </option>
+          ))}
+        </select>
+      </div>
 
       {clickedLatLon && (
         <div className="map-add-bar">
-          <span className="mono">📍 地図クリック座標: {formatLatLon(clickedLatLon.lat, clickedLatLon.lon)}</span>
-          <input
-            type="text"
-            className="text-input"
-            placeholder="観測地点の名前を入力…"
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && handleAddClicked()}
-          />
-          <button className="btn primary" onClick={handleAddClicked}>
-            この地点を登録
-          </button>
-          <button className="btn" onClick={() => setClickedLatLon(null)}>
-            閉じる
-          </button>
+          <span className="add-bar-coord mono">
+            <Icon name="target" size={15} />
+            地図クリック座標: {formatLatLon(clickedLatLon.lat, clickedLatLon.lon)}
+          </span>
+          <div className="input-row">
+            <input
+              type="text"
+              className="input grow"
+              placeholder="観測地点の名前を入力…"
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleAddClicked()}
+              aria-label="観測地点の名前"
+            />
+            <button type="button" className="btn primary" onClick={handleAddClicked}>
+              この地点を登録
+            </button>
+            <button type="button" className="btn ghost" onClick={() => setClickedLatLon(null)}>
+              閉じる
+            </button>
+          </div>
         </div>
       )}
 
       <div className="place-manager">
+        <span className="manager-label">登録地点 <span className="count-badge mono">{places.length}</span></span>
         {places.length === 0 ? (
-          <div className="sub">登録された観測地点はありません。上の検索・緯度経度入力・地図クリックから登録してください。</div>
+          <div className="muted">登録された観測地点はありません。上の検索・緯度経度入力・地図クリックから登録してください。</div>
         ) : (
           <div className="place-chips">
             {places.map((p) => (
               <span key={p.id} className={p.id === selectedId ? 'place-chip active' : 'place-chip'}>
-                <button className="chip-select" onClick={() => onSelectPlace(p.id)}>
-                  {p.name} <span className="sub mono">({formatLatLon(p.lat, p.lon)})</span>
+                <button type="button" className="chip-select" onClick={() => onSelectPlace(p.id)}>
+                  {p.name} <span className="muted mono">{formatLatLon(p.lat, p.lon)}</span>
                 </button>
-                <button className="chip-del" onClick={() => onRemovePlace(p.id)} title="削除" aria-label={`${p.name}を削除`}>
-                  ×
+                <button type="button" className="chip-del" onClick={() => onRemovePlace(p.id)} title="削除" aria-label={`${p.name}を削除`}>
+                  <Icon name="close" size={13} />
                 </button>
               </span>
             ))}
