@@ -124,9 +124,13 @@ export function App() {
 
       <footer className="app-footer">
         <span>
-          気象データ:{' '}
+          気象・空間データ:{' '}
           <a href="https://open-meteo.com/" target="_blank" rel="noreferrer">
             Open-Meteo.com
+          </a>{' '}
+          /{' '}
+          <a href="https://registry.opendata.aws/open-meteo/" target="_blank" rel="noreferrer">
+            Open-Meteo Spatial Data
           </a>{' '}
           (CC BY 4.0 / JMA MSM, ECMWF IFS, NOAA GFS, DWD ICON)
         </span>

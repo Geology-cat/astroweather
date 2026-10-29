@@ -16,3 +16,4 @@ describe('parseLatLonInput', () => {
     expect(parseLatLonInput('abc', '140')).toBeNull();
   });
 });
+
