@@ -21,7 +21,7 @@ type SortKey = 'score' | 'clearMs' | 'order' | 'name';
 /** 複数地点比較パネル（夜間晴天スコアによる一覧・共通時刻軸ストリップ） */
 export function ComparePanel({ dateKey, places, currentPlace, selectedId, onSelectPlace }: Props) {
   const [sortBy, setSortBy] = useState<SortKey>('score');
-  const [includeCurrent, setIncludeCurrent] = useState(true);
+  const [includeCurrent, setIncludeCurrent] = useState(false);
 
   const list = includeCurrent ? [currentPlace, ...places] : places;
   const { data: forecasts, loading, error } = useForecasts(list, COMPARE_VARS);
@@ -74,7 +74,7 @@ export function ComparePanel({ dateKey, places, currentPlace, selectedId, onSele
 
       {error && <div className="error">{error}</div>}
       {loading && !forecasts && <div className="sub">複数地点の予報を一括取得中…</div>}
-      {!list.length && <div className="sub">登録地点がありません。下の地図をクリックするか設定から追加してください。</div>}
+      {!list.length && <div className="sub">登録された観測地点がありません。下の地図をクリックして観測地点を登録してください。</div>}
 
       {list.length > 0 && (
         <div className="compare-table-wrap">

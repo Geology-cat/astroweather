@@ -4,7 +4,7 @@ import 'maplibre-gl/dist/maplibre-gl.css';
 import { nightWindow } from '../lib/astro';
 import { COMPARE_VARS } from '../lib/forecast';
 import { computeNightScore, scoreColor } from '../lib/score';
-import { PRESET_GROUPS, formatLatLon, newPlaceId, type Place } from '../lib/storage';
+import { formatLatLon, newPlaceId, type Place } from '../lib/storage';
 import type { DateKey } from '../lib/time';
 import { useForecasts } from '../lib/useForecasts';
 
@@ -78,9 +78,9 @@ export function MapPanel({ dateKey, places, currentPlace, selectedId, onSelectPl
   const [tileId, setTileId] = useState<TileLayerId>('pale');
   const [clickedLatLon, setClickedLatLon] = useState<{ lat: number; lon: number } | null>(null);
   const [newName, setNewName] = useState('');
-  const [presetId, setPresetId] = useState('');
 
-  const allPlaces = [currentPlace, ...places];
+  // 地図上のマーカーはユーザーが登録した地点のみ（未登録時は選択中の現在地のみ）
+  const allPlaces = places.length > 0 ? places : [currentPlace];
   const { data: forecasts } = useForecasts(allPlaces, COMPARE_VARS);
 
   // 地図初期化
@@ -114,7 +114,7 @@ export function MapPanel({ dateKey, places, currentPlace, selectedId, onSelectPl
   // 選択地点が変わったらパン
   useEffect(() => {
     if (!mapRef.current) return;
-    const selected = allPlaces.find((p) => p.id === selectedId);
+    const selected = [currentPlace, ...places].find((p) => p.id === selectedId);
     if (selected) {
       mapRef.current.flyTo({ center: [selected.lon, selected.lat], duration: 600 });
     }
@@ -159,27 +159,12 @@ export function MapPanel({ dateKey, places, currentPlace, selectedId, onSelectPl
     setClickedLatLon(null);
   };
 
-  const handleAddPreset = () => {
-    if (!presetId) return;
-    for (const g of PRESET_GROUPS) {
-      const found = g.places.find((p) => p.id === presetId);
-      if (found) {
-        if (!places.some((x) => x.id === found.id)) {
-          onAddPlace(found);
-        }
-        onSelectPlace(found.id);
-        setPresetId('');
-        return;
-      }
-    }
-  };
-
   return (
     <section className="card">
       <div className="panel-head">
         <div>
-          <h2 className="card-title map">🗺 観測地点マップ & 地点管理</h2>
-          <p className="sub">地図をクリックして任意の観測地を登録できます。マーカーの数字はその夜の夜間晴天スコアです。</p>
+          <h2 className="card-title map">🗺 観測地点マップ & 地点登録</h2>
+          <p className="sub">地図上をクリックして名前を付けると観測地点として登録されます。マーカーの数字はその夜の夜間晴天スコアです。</p>
         </div>
         <div className="panel-controls">
           <select className="ctrl-select" value={tileId} onChange={(e) => setTileId(e.target.value as TileLayerId)} aria-label="地図タイル切替">
@@ -200,7 +185,7 @@ export function MapPanel({ dateKey, places, currentPlace, selectedId, onSelectPl
           <input
             type="text"
             className="text-input"
-            placeholder="観測地点の名前（例：石狩浜・大雪山旭岳）"
+            placeholder="観測地点の名前を入力…"
             value={newName}
             onChange={(e) => setNewName(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && handleAddClicked()}
@@ -215,36 +200,22 @@ export function MapPanel({ dateKey, places, currentPlace, selectedId, onSelectPl
       )}
 
       <div className="place-manager">
-        <div className="preset-bar">
-          <select className="ctrl-select" value={presetId} onChange={(e) => setPresetId(e.target.value)}>
-            <option value="">＋ プリセット地点から追加…</option>
-            {PRESET_GROUPS.map((g) => (
-              <optgroup key={g.region} label={g.region}>
-                {g.places.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name} ({formatLatLon(p.lat, p.lon)})
-                  </option>
-                ))}
-              </optgroup>
+        {places.length === 0 ? (
+          <div className="sub">登録された観測地点はありません。上の地図をクリックして登録してください。</div>
+        ) : (
+          <div className="place-chips">
+            {places.map((p) => (
+              <span key={p.id} className={p.id === selectedId ? 'place-chip active' : 'place-chip'}>
+                <button className="chip-select" onClick={() => onSelectPlace(p.id)}>
+                  {p.name}
+                </button>
+                <button className="chip-del" onClick={() => onRemovePlace(p.id)} title="削除" aria-label={`${p.name}を削除`}>
+                  ×
+                </button>
+              </span>
             ))}
-          </select>
-          <button className="btn" onClick={handleAddPreset} disabled={!presetId}>
-            追加
-          </button>
-        </div>
-
-        <div className="place-chips">
-          {places.map((p) => (
-            <span key={p.id} className={p.id === selectedId ? 'place-chip active' : 'place-chip'}>
-              <button className="chip-select" onClick={() => onSelectPlace(p.id)}>
-                {p.name}
-              </button>
-              <button className="chip-del" onClick={() => onRemovePlace(p.id)} title="削除" aria-label={`${p.name}を削除`}>
-                ×
-              </button>
-            </span>
-          ))}
-        </div>
+          </div>
+        )}
       </div>
     </section>
   );
