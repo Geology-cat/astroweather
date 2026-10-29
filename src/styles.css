@@ -123,26 +123,32 @@ select {
 .topbar-inner {
   max-width: 1280px;
   margin: 0 auto;
-  padding: 10px 16px;
+  padding: 13px 16px;
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 10px 22px;
+  gap: 12px 26px;
+}
+
+/* 横幅が足りないときは折り返さず、場所の選択欄だけが縮む */
+.brand,
+.date-nav,
+.moon-badge {
+  flex: none;
 }
 
 .brand {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: 11px;
   font-weight: 700;
-  font-size: 15px;
+  font-size: 19px;
   letter-spacing: 0.01em;
 }
 
 .brand-mark {
-  width: 30px;
-  height: 30px;
-  border-radius: 9px;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
   display: grid;
   place-items: center;
   color: #fff;
@@ -153,16 +159,28 @@ select {
 .date-nav {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
 }
 
+/* 日付はヘッダーの主役。全パネル共通の「どの夜か」が一目でわかるよう最も大きくする */
 .date-title {
-  margin: 0 4px;
-  font-size: 18px;
-  font-weight: 650;
+  margin: 0 6px;
+  font-size: 25px;
+  font-weight: 700;
   letter-spacing: 0.01em;
+  line-height: 1.2;
   white-space: nowrap;
   user-select: none;
+}
+
+.date-wd-short {
+  display: none;
+}
+
+.date-nav .icon-btn {
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
 }
 
 .icon-btn {
@@ -190,13 +208,13 @@ select {
 }
 
 .today-btn {
-  height: 28px;
-  padding: 0 11px;
+  height: 32px;
+  padding: 0 13px;
   border-radius: 999px;
   border: 1px solid var(--accent-line);
   background: var(--accent-soft);
   color: var(--accent);
-  font-size: 12.5px;
+  font-size: 13.5px;
   font-weight: 600;
   cursor: pointer;
   transition: background-color 0.15s;
@@ -209,23 +227,46 @@ select {
 }
 
 .place-picker {
+  flex: 0 1 auto;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   min-width: 0;
 }
 
 .place-icon {
+  width: 38px;
+  height: 38px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
   color: var(--tone-map);
-  display: inline-flex;
+  background: rgba(125, 220, 160, 0.14);
 }
 
-.place-select {
-  max-width: 220px;
+.place-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+/* 場所も日付に次いで目立たせる */
+.select.place-select {
+  height: 38px;
+  width: 100%;
+  min-width: 0;
+  max-width: 250px;
+  padding-left: 12px;
+  font-size: 16px;
+  font-weight: 650;
 }
 
 .place-coord {
+  padding-left: 2px;
   font-size: 12.5px;
+  line-height: 1.2;
   white-space: nowrap;
 }
 
@@ -233,8 +274,8 @@ select {
   margin-left: auto;
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 4px 14px 4px 5px;
+  gap: 12px;
+  padding: 5px 18px 5px 6px;
   border-radius: 999px;
   background: var(--surface);
   border: 1px solid var(--line);
@@ -251,19 +292,19 @@ select {
 }
 
 .moon-badge-label {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--text-3);
 }
 
 .moon-badge-value {
-  font-size: 19px;
+  font-size: 25px;
   font-weight: 700;
 }
 
 .moon-badge-illum {
-  font-size: 12px;
+  font-size: 13.5px;
   color: var(--text-2);
-  padding-left: 10px;
+  padding-left: 12px;
   border-left: 1px solid var(--line-2);
 }
 
@@ -2086,24 +2127,22 @@ select {
 /* =========================================================
    レスポンシブ
    ========================================================= */
-@media (max-width: 1100px) {
+/* ヘッダーは横幅に応じて、ロゴ名・輝面比を省き、さらに狭いと「日付」と「場所・月齢」の 2 段にする */
+@media (max-width: 1240px) {
   .brand-name,
   .moon-badge-illum {
     display: none;
   }
-  .place-select {
-    max-width: 180px;
-  }
 }
 
-@media (max-width: 860px) {
+@media (max-width: 1040px) {
   .topbar-inner {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     grid-template-areas:
       'date date'
       'place moon';
-    gap: 8px 10px;
+    gap: 10px 12px;
   }
   .brand {
     display: none;
@@ -2114,28 +2153,61 @@ select {
   .date-title {
     flex: 1;
     text-align: center;
-    font-size: 16.5px;
   }
   .today-btn.is-hidden {
     display: none;
   }
   .place-picker {
     grid-area: place;
-    flex-wrap: wrap;
-    row-gap: 2px;
   }
-  .place-select {
-    flex: 1 1 120px;
+  .place-stack {
+    flex: 1;
+  }
+  .select.place-select {
     min-width: 0;
-    max-width: none;
+    max-width: 360px;
+  }
+  .moon-badge {
+    grid-area: moon;
+    margin-left: 0;
+  }
+}
+
+@media (max-width: 640px) {
+  .topbar-inner {
+    padding: 12px 16px;
+  }
+  .date-title {
+    margin: 0 2px;
+    font-size: 21px;
+  }
+  .date-year,
+  .date-wd-long {
+    display: none;
+  }
+  .date-wd-short {
+    display: inline;
+  }
+  .date-nav .icon-btn {
+    width: 36px;
+    height: 36px;
+  }
+  .select.place-select {
+    font-size: 15px;
   }
   .place-coord {
     font-size: 11.5px;
   }
   .moon-badge {
-    grid-area: moon;
-    margin-left: 0;
-    padding-right: 12px;
+    gap: 9px;
+    padding-right: 14px;
+  }
+  .moon-badge svg {
+    width: 42px;
+    height: 42px;
+  }
+  .moon-badge-value {
+    font-size: 21px;
   }
 }
 
