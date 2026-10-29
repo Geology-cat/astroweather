@@ -116,7 +116,8 @@ select {
   position: sticky;
   top: 0;
   z-index: 50;
-  background: rgba(8, 13, 24, 0.95);
+  /* 下を流れる内容が透けて文字が重ならないよう、背景は不透明にする */
+  background: var(--bg);
   border-bottom: 1px solid var(--line);
 }
 
@@ -2238,9 +2239,11 @@ select {
   }
 }
 
+/* スマホでもヘッダーは上部に固定する。画面を占める高さを抑えるため、上下の余白だけ詰める */
 @media (max-width: 640px) {
   .topbar-inner {
-    padding: 12px 16px;
+    padding: 9px 16px;
+    row-gap: 8px;
   }
   .date-title {
     margin: 0 2px;
@@ -2277,10 +2280,6 @@ select {
 }
 
 @media (max-width: 640px) {
-  .topbar {
-    position: static;
-  }
-
   .card-desc {
     margin-left: 0;
   }
