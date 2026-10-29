@@ -1,0 +1,736 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>解説：夜間晴天スコアと予報データ | AstroWeather</title>
+<meta name="description" content="AstroWeather の夜間晴天スコアの算出方法と、気象データの出典（Open-Meteo・気象庁MSM・ECMWF IFS・NOAA GFS・DWD ICON）の解説">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌌</text></svg>">
+
+<!-- ===== フォント ===== -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&family=Noto+Serif+JP:wght@500;600;700&family=Source+Code+Pro:wght@400;600&display=swap" rel="stylesheet">
+
+<!-- ===== MathJax v3 + mhchem（化学式） ===== -->
+<script>
+window.MathJax = {
+  tex: {
+    inlineMath: [['\\(', '\\)']],
+    displayMath: [['\\[', '\\]']],
+    packages: {'[+]': ['mhchem']},
+    tags: 'ams'
+  },
+  loader: {load: ['[tex]/mhchem']},
+  chtml: {scale: 1.02}
+};
+</script>
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-chtml.min.js"></script>
+
+<style>
+/* =====================================================
+   カラーパレット — 図版もこの色に合わせる（figures.md参照）
+   ===================================================== */
+:root {
+  --bg:        #FAF8F3;  /* 生成りの背景 */
+  --bg-card:   #FFFFFF;  /* カード（わずかに浮かせる） */
+  --ink:       #3D3A34;  /* 本文の墨色 */
+  --ink-light: #7A756B;  /* 補助テキスト */
+  --accent:    #4A7A8C;  /* 青緑（見出し・リンク） */
+  --accent-2:  #B08968;  /* 土色（副アクセント） */
+  --line:      #E4DFD5;  /* 罫線 */
+  --def-bg:    #EEF3F1;  --def-bd:  #7FA396;  /* 定義 */
+  --thm-bg:    #EDF1F5;  --thm-bd:  #6E93AC;  /* 定理・法則 */
+  --note-bg:   #F5F1E8;  --note-bd: #C2A878;  /* 補足 */
+  --warn-bg:   #F6EDEA;  --warn-bd: #C08A7E;  /* 注意 */
+}
+
+* { box-sizing: border-box; }
+
+html { scroll-behavior: smooth; scroll-padding-top: 2rem; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: 'Noto Sans JP', sans-serif;
+  font-size: 1.02rem;
+  line-height: 1.9;
+  letter-spacing: 0.015em;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ===== レイアウト：横幅60〜70%基準のレスポンシブ ===== */
+.container {
+  width: min(68%, 880px);
+  margin: 0 auto;
+  padding: 3.5rem 0 5rem;
+}
+@media (max-width: 1024px) { .container { width: 80%; } }
+@media (max-width: 640px)  { .container { width: 92%; padding-top: 2rem; } }
+
+/* ===== ヘッダー ===== */
+header.doc-header {
+  margin-bottom: 2.8rem;
+  padding-bottom: 1.6rem;
+  border-bottom: 1px solid var(--line);
+}
+.doc-header .eyebrow {
+  font-size: 0.82rem;
+  letter-spacing: 0.18em;
+  color: var(--accent);
+  font-weight: 500;
+  margin: 0 0 0.6rem;
+}
+.doc-header h1 {
+  font-family: 'Noto Serif JP', serif;
+  font-size: clamp(1.6rem, 3.2vw, 2.15rem);
+  font-weight: 600;
+  line-height: 1.5;
+  margin: 0 0 0.7rem;
+}
+.doc-header .subtitle { color: var(--ink-light); font-size: 0.95rem; margin: 0; }
+.doc-header .meta { color: var(--ink-light); font-size: 0.85rem; margin-top: 0.9rem; }
+
+/* ===== 目次（JSが自動生成） ===== */
+nav.toc {
+  background: var(--bg-card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 1.4rem 1.8rem;
+  margin-bottom: 3rem;
+  box-shadow: 0 1px 4px rgba(61,58,52,0.05);
+}
+nav.toc .toc-title {
+  font-family: 'Noto Serif JP', serif;
+  font-weight: 600;
+  font-size: 1.02rem;
+  margin: 0 0 0.7rem;
+  color: var(--accent);
+}
+nav.toc ol { margin: 0; padding-left: 1.3rem; }
+nav.toc > ol > li { margin: 0.32rem 0; }
+nav.toc ol ol { font-size: 0.92rem; margin-top: 0.15rem; }
+nav.toc a { color: var(--ink); text-decoration: none; border-bottom: 1px dotted transparent; }
+nav.toc a:hover { color: var(--accent); border-bottom-color: var(--accent); }
+
+/* ===== 見出し ===== */
+h2 {
+  font-family: 'Noto Serif JP', serif;
+  font-size: 1.45rem;
+  font-weight: 600;
+  margin: 3.2rem 0 1.1rem;
+  padding-left: 0.75rem;
+  border-left: 4px solid var(--accent);
+  line-height: 1.5;
+}
+h3 {
+  font-family: 'Noto Serif JP', serif;
+  font-size: 1.16rem;
+  font-weight: 600;
+  margin: 2.2rem 0 0.8rem;
+  color: var(--accent);
+}
+h2 + h3 { margin-top: 1.2rem; }
+
+p { margin: 0 0 1.1rem; }
+
+a { color: var(--accent); }
+
+strong { font-weight: 700; }
+em { font-style: normal; background: linear-gradient(transparent 68%, #E8E0C9 68%); }
+
+/* ===== カラーボックス（定義・定理・補足・注意） ===== */
+.box {
+  border-radius: 8px;
+  padding: 1rem 1.3rem;
+  margin: 1.4rem 0;
+  border-left: 4px solid;
+}
+.box .box-label {
+  display: block;
+  font-weight: 700;
+  font-size: 0.9rem;
+  letter-spacing: 0.06em;
+  margin-bottom: 0.3rem;
+}
+.box p:last-child { margin-bottom: 0; }
+.box.def  { background: var(--def-bg);  border-color: var(--def-bd); }
+.box.def  .box-label { color: #4E7566; }
+.box.thm  { background: var(--thm-bg);  border-color: var(--thm-bd); }
+.box.thm  .box-label { color: #45677E; }
+.box.note { background: var(--note-bg); border-color: var(--note-bd); }
+.box.note .box-label { color: #8A7346; }
+.box.warn { background: var(--warn-bg); border-color: var(--warn-bd); }
+.box.warn .box-label { color: #96604F; }
+
+/* ===== 図（インラインSVG／グラフ） ===== */
+figure {
+  margin: 2rem 0;
+  text-align: center;
+}
+figure.card {
+  background: var(--bg-card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 1.4rem 1.2rem 1rem;
+  box-shadow: 0 1px 4px rgba(61,58,52,0.05);
+}
+figure svg { max-width: 100%; height: auto; }
+figcaption {
+  font-size: 0.88rem;
+  color: var(--ink-light);
+  margin-top: 0.8rem;
+  line-height: 1.7;
+  text-align: left;
+}
+figcaption .fig-no { font-weight: 700; color: var(--accent); margin-right: 0.5em; }
+
+/* ===== 表 ===== */
+.table-wrap { overflow-x: auto; margin: 2rem 0; }
+table {
+  border-collapse: collapse;
+  margin: 0 auto;
+  font-size: 0.94rem;
+  line-height: 1.6;
+  background: var(--bg-card);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 1px 4px rgba(61,58,52,0.05);
+}
+th, td { padding: 0.6rem 1rem; border-bottom: 1px solid var(--line); text-align: left; }
+thead th {
+  background: #EFEBE1;
+  font-weight: 700;
+  font-size: 0.88rem;
+  letter-spacing: 0.04em;
+  border-bottom: 2px solid var(--accent);
+}
+tbody tr:last-child td { border-bottom: none; }
+tbody tr:nth-child(even) { background: #FBFAF6; }
+
+/* ===== コード ===== */
+code {
+  font-family: 'Source Code Pro', monospace;
+  font-size: 0.88em;
+  background: #F0EDE4;
+  border-radius: 4px;
+  padding: 0.12em 0.4em;
+}
+pre {
+  background: #F4F1E9;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 1rem 1.2rem;
+  overflow-x: auto;
+  line-height: 1.6;
+}
+pre code { background: none; padding: 0; }
+
+/* ===== 引用・脚注・参考文献 ===== */
+blockquote {
+  margin: 1.4rem 0;
+  padding: 0.2rem 0 0.2rem 1.2rem;
+  border-left: 3px solid var(--accent-2);
+  color: var(--ink-light);
+}
+section.references { margin-top: 3.5rem; }
+section.references ul { padding-left: 1.4rem; font-size: 0.9rem; color: var(--ink-light); }
+section.references li { margin-bottom: 0.55rem; text-indent: -1.4rem; padding-left: 1.4rem; list-style: none; }
+
+footer.doc-footer {
+  margin-top: 4rem;
+  padding-top: 1.2rem;
+  border-top: 1px solid var(--line);
+  font-size: 0.82rem;
+  color: var(--ink-light);
+  text-align: center;
+}
+
+::selection { background: #D8E3E0; }
+
+/* ===== AstroWeather 用の追加 ===== */
+.back { margin: 0 0 1.6rem; font-size: 0.9rem; }
+.back a { text-decoration: none; }
+.back a:hover { text-decoration: underline; }
+/* 長い数式は狭い画面で横スクロール（MathJax v3 は自動改行しないため） */
+mjx-container[display="true"] { display: block; max-width: 100%; overflow-x: auto; overflow-y: hidden; padding: 2px 0; }
+.swatch { display: inline-block; width: 2.4em; height: 0.95em; border-radius: 4px; vertical-align: -0.1em; }
+main ul { padding-left: 1.4rem; }
+main ul li { margin-bottom: 0.5rem; }
+</style>
+</head>
+<body>
+<div class="container">
+
+  <header class="doc-header">
+    <p class="back"><a href="./">← AstroWeather に戻る</a></p>
+    <p class="eyebrow">ASTROWEATHER GUIDE</p>
+    <h1>夜間晴天スコアと予報データの解説</h1>
+    <p class="subtitle">スコアの算出方法と、気象データの出典（Open-Meteo・4 つの数値予報モデル）について</p>
+    <p class="meta">2026年10月29日 作成</p>
+  </header>
+
+  <!-- 目次：中身はJSが自動生成する。手書き不要 -->
+  <nav class="toc" id="toc" aria-label="目次">
+    <p class="toc-title">目次</p>
+    <ol id="toc-list"></ol>
+  </nav>
+
+  <main id="content">
+
+    <h2>このページについて</h2>
+    <p>
+      AstroWeather は、天体撮影・観望の判断材料を 1 画面に集めたダッシュボードです。最終的な判断はご自身で行う前提で、
+      <strong>「今夜、雲はどのくらい出そうか」</strong>を 0〜100 点の<strong>夜間晴天スコア</strong>にまとめて表示しています。
+      このページでは、そのスコアの計算方法と、もとになっている気象データ（Open-Meteo と 4 つの数値予報モデル）について説明します。
+    </p>
+
+    <h2>夜間晴天スコアの算出方法</h2>
+    <p>
+      夜間晴天スコアは、<strong>集計窓（その夜の暗い時間帯）</strong>のあいだに予報されている<strong>全雲量</strong>と<strong>降水</strong>だけから計算します。
+      4 つのモデルの予報を毎時ごとに中央値でまとめ、集計窓の中で平均した値がスコアです。以下、順に説明します。
+    </p>
+
+    <h3>集計窓：どの時間の雲を数えるか</h3>
+    <div class="box def">
+      <span class="box-label">定義：集計窓</span>
+      <p>
+        対象日の<strong>夕方の天文薄明終了</strong>（太陽高度 −18°）から、<strong>翌朝の天文薄明開始</strong>までを集計窓 \([T_s,\ T_e]\) とします。
+        高緯度の夏至前後など、太陽が −18° まで沈まない夜（終夜薄明）は航海薄明（−12°）で、それもない場合は日の入〜日の出で代用します。
+        太陽高度の計算はブラウザ内で Astronomy Engine により行っています。
+      </p>
+    </div>
+    <p>
+      予報は 1 時間ごとの値なので、各時刻 \(t\) の値は<strong>前後 30 分を代表する</strong>とみなします。
+      集計窓の始まりと終わりにかかる時刻は、窓と重なる長さの割合だけ重みを付けます（図1）。
+    </p>
+    \[
+      w(t) = \frac{\bigl|\,[\,t-30\,\text{分},\ t+30\,\text{分}\,] \cap [\,T_s,\ T_e\,]\,\bigr|}{1\ \text{時間}}
+      \qquad (0 \le w(t) \le 1)
+    \]
+    <figure class="card">
+      <svg viewBox="0 0 780 330" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="集計窓と毎時値の重みの模式図" font-family="'Noto Sans JP', sans-serif">
+<rect x="190.0" y="62" width="440.0" height="196" fill="#DBE4E8" opacity="0.65"/>
+<text x="410.0" y="30" text-anchor="middle" font-size="15" fill="#4A7A8C" font-weight="700">集計窓（例：天文薄明終了 19:15 〜 天文薄明開始 22:00）</text>
+<line x1="190.0" y1="64" x2="190.0" y2="82" stroke="#4A7A8C" stroke-width="1.6" stroke-dasharray="5 4"/>
+<line x1="190.0" y1="106" x2="190.0" y2="162" stroke="#4A7A8C" stroke-width="1.6" stroke-dasharray="5 4"/>
+<line x1="190.0" y1="216" x2="190.0" y2="262" stroke="#4A7A8C" stroke-width="1.6" stroke-dasharray="5 4"/>
+<text x="190.0" y="56" text-anchor="middle" font-size="13" fill="#4A7A8C">19:15</text>
+<line x1="630.0" y1="64" x2="630.0" y2="82" stroke="#4A7A8C" stroke-width="1.6" stroke-dasharray="5 4"/>
+<line x1="630.0" y1="106" x2="630.0" y2="162" stroke="#4A7A8C" stroke-width="1.6" stroke-dasharray="5 4"/>
+<line x1="630.0" y1="216" x2="630.0" y2="262" stroke="#4A7A8C" stroke-width="1.6" stroke-dasharray="5 4"/>
+<text x="630.0" y="56" text-anchor="middle" font-size="13" fill="#4A7A8C">22:00</text>
+<text x="150.0" y="98" text-anchor="middle" font-size="13" fill="#7A756B">19:00 の予報値</text>
+<rect x="73.0" y="110" width="154.0" height="46" rx="6" fill="#FFFFFF" stroke="#7A756B" stroke-width="1.2"/>
+<rect x="190.0" y="110" width="37.0" height="46" fill="#4A7A8C" opacity="0.55"/>
+<circle cx="150.0" cy="133" r="4" fill="#3D3A34"/>
+<text x="150.0" y="184" text-anchor="middle" font-size="14" fill="#3D3A34">重み w = 0.25</text>
+<text x="150.0" y="206" text-anchor="middle" font-size="14" fill="#B08968" font-weight="700">晴れ度の中央値 75</text>
+<text x="310.0" y="98" text-anchor="middle" font-size="13" fill="#7A756B">20:00 の予報値</text>
+<rect x="233.0" y="110" width="154.0" height="46" rx="6" fill="#FFFFFF" stroke="#7A756B" stroke-width="1.2"/>
+<rect x="233.0" y="110" width="154.0" height="46" fill="#4A7A8C" opacity="0.55"/>
+<circle cx="310.0" cy="133" r="4" fill="#3D3A34"/>
+<text x="310.0" y="184" text-anchor="middle" font-size="14" fill="#3D3A34">重み w = 1</text>
+<text x="310.0" y="206" text-anchor="middle" font-size="14" fill="#B08968" font-weight="700">晴れ度の中央値 72.5</text>
+<text x="470.0" y="98" text-anchor="middle" font-size="13" fill="#7A756B">21:00 の予報値</text>
+<rect x="393.0" y="110" width="154.0" height="46" rx="6" fill="#FFFFFF" stroke="#7A756B" stroke-width="1.2"/>
+<rect x="393.0" y="110" width="154.0" height="46" fill="#4A7A8C" opacity="0.55"/>
+<circle cx="470.0" cy="133" r="4" fill="#3D3A34"/>
+<text x="470.0" y="184" text-anchor="middle" font-size="14" fill="#3D3A34">重み w = 1</text>
+<text x="470.0" y="206" text-anchor="middle" font-size="14" fill="#B08968" font-weight="700">晴れ度の中央値 25</text>
+<text x="630.0" y="98" text-anchor="middle" font-size="13" fill="#7A756B">22:00 の予報値</text>
+<rect x="553.0" y="110" width="154.0" height="46" rx="6" fill="#FFFFFF" stroke="#7A756B" stroke-width="1.2"/>
+<rect x="553.0" y="110" width="77.0" height="46" fill="#4A7A8C" opacity="0.55"/>
+<circle cx="630.0" cy="133" r="4" fill="#3D3A34"/>
+<text x="630.0" y="184" text-anchor="middle" font-size="14" fill="#3D3A34">重み w = 0.5</text>
+<text x="630.0" y="206" text-anchor="middle" font-size="14" fill="#B08968" font-weight="700">晴れ度の中央値 7.5</text>
+<line x1="70.0" y1="262" x2="710.0" y2="262" stroke="#7A756B" stroke-width="1.2"/>
+<line x1="70.0" y1="262" x2="70.0" y2="270" stroke="#7A756B"/>
+<text x="70.0" y="288" text-anchor="middle" font-size="13" fill="#7A756B">18:30</text>
+<line x1="150.0" y1="262" x2="150.0" y2="266" stroke="#7A756B"/>
+<line x1="230.0" y1="262" x2="230.0" y2="270" stroke="#7A756B"/>
+<text x="230.0" y="288" text-anchor="middle" font-size="13" fill="#7A756B">19:30</text>
+<line x1="310.0" y1="262" x2="310.0" y2="266" stroke="#7A756B"/>
+<line x1="390.0" y1="262" x2="390.0" y2="270" stroke="#7A756B"/>
+<text x="390.0" y="288" text-anchor="middle" font-size="13" fill="#7A756B">20:30</text>
+<line x1="470.0" y1="262" x2="470.0" y2="266" stroke="#7A756B"/>
+<line x1="550.0" y1="262" x2="550.0" y2="270" stroke="#7A756B"/>
+<text x="550.0" y="288" text-anchor="middle" font-size="13" fill="#7A756B">21:30</text>
+<line x1="630.0" y1="262" x2="630.0" y2="266" stroke="#7A756B"/>
+<line x1="710.0" y1="262" x2="710.0" y2="270" stroke="#7A756B"/>
+<text x="710.0" y="288" text-anchor="middle" font-size="13" fill="#7A756B">22:30</text>
+<g font-size="13" fill="#7A756B"><rect x="70" y="304" width="14" height="12" fill="#4A7A8C" opacity="0.55"/><text x="90" y="315">毎時値の代表区間（前後30分）のうち、集計窓と重なる部分</text>
+<circle cx="530" cy="310" r="4" fill="#3D3A34"/><text x="540" y="315">予報値の時刻</text></g>
+</svg>
+      <figcaption>
+        <span class="fig-no">図1</span>集計窓と毎時値の重み（例）。各時刻の予報値は前後 30 分を代表するとみなし、集計窓と重なる割合を重み \(w\) とする。
+        この例では 19:00 の値は 19:15〜19:30 の 15 分ぶん（\(w=0.25\)）、22:00 の値は 21:30〜22:00 の 30 分ぶん（\(w=0.5\)）だけ数える。中央値は表1の計算例の値。
+      </figcaption>
+    </figure>
+
+    <h3>毎時の「晴れ度」</h3>
+    <p>
+      モデル \(m\) の時刻 \(t\) における全雲量を \(C_m(t)\)［%］、降水量を \(P_m(t)\)［mm］として、その時刻の<strong>晴れ度</strong> \(s_m(t)\) を次のように決めます。
+    </p>
+    \[
+      s_m(t) =
+      \begin{cases}
+        0 & \bigl(P_m(t) \ge 0.1\ \text{mm}\bigr) \\[4pt]
+        100 - C_m(t) & (\text{それ以外})
+      \end{cases}
+    \]
+    <p>
+      つまり雲がまったくなければ 100、全天が雲なら 0 です。降水が 0.1 mm 以上予報されている時刻は、雲量の値にかかわらず 0 とします。
+    </p>
+    <div class="box note">
+      <span class="box-label">補足：雲量と降水量の時間の意味</span>
+      <p>
+        Open-Meteo の全雲量（<code>cloud_cover</code>）は、その時刻の<strong>瞬間値</strong>で、空を覆う雲の面積の割合（%）です。
+        一方、降水量（<code>precipitation</code>）は、その時刻までの<strong>前 1 時間の合計</strong>です（Open-Meteo, n.d.-a）。
+        たとえば 21:00 の降水量は 20:00〜21:00 に降る量を表します。
+      </p>
+    </div>
+
+    <h3>使うモデルを選ぶ（欠測の扱い）</h3>
+    <p>
+      モデルによっては予報期間が短く、夜の途中で値が途切れることがあります（MSM は約 4 日先まで）。
+      そこで、集計窓のうち<strong>値のある時間が 8 割以上</strong>あるモデルだけを、その夜のスコア計算に使います。
+    </p>
+    \[
+      \frac{\displaystyle\sum_{t\,:\,s_m(t)\ \text{が存在}} w(t)}{(T_e - T_s)\,/\,1\ \text{時間}} \;\ge\; 0.8
+    \]
+    <p>
+      この条件を満たすモデルの集合を \(\mathcal{M}\) とします。1 つも満たさない場合、スコアは「—」になります。
+      ダッシュボードの「使用モデル 4/4」は、\(\mathcal{M}\) に入ったモデルの数です。
+    </p>
+
+    <h3>モデル間の統合：毎時の中央値</h3>
+    <p>
+      各時刻で、使えるモデルの晴れ度の<strong>中央値</strong>をとります。モデルが偶数個のときは、中央の 2 つの平均です。
+    </p>
+    \[
+      \tilde{s}(t) = \operatorname*{median}_{m \in \mathcal{M}}\, s_m(t)
+    \]
+    <p>
+      平均ではなく中央値を使うのは、1 つのモデルだけが極端な予報（例：他が快晴なのに 1 つだけ曇り）を出したときに、
+      その影響を受けにくくするためです。時間帯ストリップの色は、この \(\tilde{s}(t)\) を表しています。
+    </p>
+
+    <h3>スコアの計算</h3>
+    <div class="box thm">
+      <span class="box-label">夜間晴天スコア</span>
+      <p>
+        毎時の中央値 \(\tilde{s}(t)\) を、重み \(w(t)\) で平均して整数に丸めた値です。
+      </p>
+      \[
+        S = \operatorname{round}\!\left( \frac{\sum_t w(t)\, \tilde{s}(t)}{\sum_t w(t)} \right)
+      \]
+      <p>
+        モデル別のスコア \(S_m\)（MSM・ECMWF・GFS・ICON の各数値）は、同じ式の \(\tilde{s}(t)\) をそのモデルの \(s_m(t)\) に置き換えたものです。
+      </p>
+    </div>
+    <p>
+      中央値は<strong>時刻ごと</strong>にとっているので、全体のスコア \(S\) は、モデル別スコア \(S_m\) の中央値とは一般に一致しません。
+      雲の多い時間帯がモデルごとにずれているときに、この違いが出ます（下の計算例を参照）。
+    </p>
+
+    <h3>晴れ時間と最長連続</h3>
+    <p>
+      \(\tilde{s}(t) \ge 70\)（全雲量 30% 以下、かつ降水なし）の時刻を「晴れ」とみなし、その重みの合計を<strong>晴れ時間</strong>とします。
+    </p>
+    \[
+      T_{\text{晴}} = \sum_{t\,:\,\tilde{s}(t) \ge 70} w(t) \times 1\ \text{時間}
+    \]
+    <p>
+      晴れの時刻が続いている区間のうち、最も長いものを<strong>最長連続</strong>として表示します。区間の端は、各時刻が代表する前後 30 分（集計窓の外は除く）です。
+    </p>
+
+    <h3>計算例</h3>
+    <p>
+      図1と同じ集計窓（19:15〜22:00、長さ 2.75 時間）で、4 モデルがそれぞれ次のような晴れ度を予報したとします（架空の数値）。
+    </p>
+    <figure>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>時刻 \(t\)</th><th>重み \(w\)</th><th>MSM</th><th>ECMWF</th><th>GFS</th><th>ICON</th><th>中央値 \(\tilde{s}\)</th><th>晴れ？</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>19:00</td><td>0.25</td><td>90</td><td>80</td><td>60</td><td>70</td><td><strong>75</strong></td><td>○</td></tr>
+            <tr><td>20:00</td><td>1</td><td>85</td><td>70</td><td>40</td><td>75</td><td><strong>72.5</strong></td><td>○</td></tr>
+            <tr><td>21:00</td><td>1</td><td>30</td><td>0（降水）</td><td>20</td><td>50</td><td><strong>25</strong></td><td>—</td></tr>
+            <tr><td>22:00</td><td>0.5</td><td>10</td><td>0（降水）</td><td>5</td><td>20</td><td><strong>7.5</strong></td><td>—</td></tr>
+            <tr><td>モデル別スコア \(S_m\)</td><td></td><td>52</td><td>33</td><td>28</td><td>55</td><td></td><td></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <figcaption><span class="fig-no">表1</span>夜間晴天スコアの計算例（架空の値）。ECMWF の 21:00・22:00 は降水 0.1 mm 以上のため晴れ度 0。</figcaption>
+    </figure>
+    <p>スコアは次のとおりです。</p>
+    \[
+      S = \operatorname{round}\!\left( \frac{0.25 \times 75 + 1 \times 72.5 + 1 \times 25 + 0.5 \times 7.5}{0.25 + 1 + 1 + 0.5} \right)
+        = \operatorname{round}\!\left( \frac{120}{2.75} \right) = \operatorname{round}(43.6\ldots) = 44
+    \]
+    <p>
+      晴れの時刻は 19:00（\(w=0.25\)）と 20:00（\(w=1\)）なので、晴れ時間は 1.25 時間＝<strong>1 時間 15 分</strong>、最長連続は <strong>19:15–20:30</strong> です。
+      なお、モデル別スコアの中央値は \((33+52)/2 = 42.5\) で、\(S=44\) とは一致しません。
+    </p>
+
+    <h3>色の見方</h3>
+    <figure>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>スコア</th><th>色</th><th>目安</th></tr></thead>
+          <tbody>
+            <tr><td>80〜100</td><td><span class="swatch" style="background:#5fd3a5"></span></td><td>ほぼ一晩じゅう晴れの予報</td></tr>
+            <tr><td>60〜79</td><td><span class="swatch" style="background:#9fd36a"></span></td><td>晴れ間が多い</td></tr>
+            <tr><td>40〜59</td><td><span class="swatch" style="background:#e2c25b"></span></td><td>晴れと曇りが半々程度</td></tr>
+            <tr><td>20〜39</td><td><span class="swatch" style="background:#e3955a"></span></td><td>雲が多い</td></tr>
+            <tr><td>0〜19</td><td><span class="swatch" style="background:#d86a6a"></span></td><td>ほぼ曇り・降水</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <figcaption><span class="fig-no">表2</span>スコアの色分け。時間帯ストリップは、晴れ度 0（灰色）から 100（青）への連続的な色で毎時の \(\tilde{s}(t)\) を表し、集計窓の外側は暗く、窓の境界は白線で示す。</figcaption>
+    </figure>
+
+    <h3>参考値（スコアには含めない）</h3>
+    <p>
+      スコアの下に表示している<strong>最大風速</strong>と<strong>最小の気温−露点差</strong>は、集計窓の中で毎時のモデル中央値をとり、その最大値・最小値を示したものです。
+      風による機材の揺れや、夜露・結露（気温と露点の差が小さいほど起こりやすい）の目安として表示しており、点数には入れていません。
+    </p>
+
+    <h3>スコアに含まれないもの</h3>
+    <div class="box warn">
+      <span class="box-label">注意</span>
+      <p>
+        このスコアは<strong>雲量と降水の予報だけ</strong>から計算しています。<strong>光害・月明かり・大気の透明度・シーイング（星像の揺らぎ）・霧や夜露</strong>は含みません。
+        月が地平線上にある時間帯は、天文暦の「暗夜」欄で別に確認してください。
+      </p>
+      <p>
+        また、予報値はモデルの格子（約 5〜13 km 四方）を代表する値です（図2）。谷の霧や山頂だけ晴れるといった、格子より小さな地形の影響までは表せません。
+        雲量は各モデルの雲の扱い方から診断される量で、同じ空でもモデルによって値が大きく異なることがあります。
+      </p>
+    </div>
+
+    <h2>Open-Meteo とは</h2>
+    <p>
+      <a href="https://open-meteo.com/" target="_blank" rel="noreferrer">Open-Meteo</a> は、各国の気象機関が公開している数値予報モデルのデータを取り込み、
+      緯度・経度を指定するだけで 1 時間ごとの予報を返す<strong>オープンソースの気象 API</strong> です（Zippenfenig, 2023）。
+      ドイツ気象局（DWD）、欧州中期予報センター（ECMWF）、米国海洋大気庁（NOAA）の環境予測センター（NCEP）、気象庁（JMA）、
+      カナダ気象センター、フランス気象局、ノルウェー気象研究所などのデータを扱っています（Open-Meteo, n.d.-f）。
+    </p>
+    <figure>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>項目</th><th>内容</th></tr></thead>
+          <tbody>
+            <tr><td>データの利用条件</td><td>CC BY 4.0（出典を明記すれば共有・改変が可能）</td></tr>
+            <tr><td>ソースコード</td><td>GNU Affero General Public License で GitHub に公開</td></tr>
+            <tr><td>非商用の無料利用</td><td>API キー不要。1 日 10,000 回・1 時間 5,000 回・1 分 600 回未満</td></tr>
+            <tr><td>時間の解像度</td><td>モデルごとに異なる出力間隔（1・3・6 時間）を、1 時間ごとの時系列に補間して提供</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <figcaption><span class="fig-no">表3</span>Open-Meteo の概要（Open-Meteo, n.d.-c, n.d.-f, n.d.-g）。</figcaption>
+    </figure>
+
+    <h3>AstroWeather での使い方</h3>
+    <ul>
+      <li>
+        <strong>地点の予報</strong>：Forecast API に、地点の緯度・経度と 4 つのモデル（<code>jma_msm</code>, <code>ecmwf_ifs</code>, <code>gfs_seamless</code>, <code>icon_seamless</code>）を指定し、
+        モデルごとの予報をそのまま取得しています（前日から 8 日先まで、日本時間）。複数地点は 1 回のリクエストでまとめて取得し、ブラウザに 30 分間保存して同じ問い合わせを繰り返さないようにしています。
+      </li>
+      <li>
+        <strong>雲の層</strong>：全雲量のほか、下層雲（地上〜3 km）・中層雲（3〜8 km）・上層雲（8 km〜）の雲量も Open-Meteo の定義に従って表示しています（Open-Meteo, n.d.-a）。
+      </li>
+      <li>
+        <strong>雲量マップ</strong>：面的な雲量の分布は、Open-Meteo が AWS のオープンデータとして公開している格子データ（Open-Meteo Spatial Data）を、ブラウザで直接読み込んで描いています。
+      </li>
+    </ul>
+
+    <h2>採用した 4 つの数値予報モデル</h2>
+    <p>
+      AstroWeather では、運用元の異なる 4 つのモデルを並べて比較しています。日本付近で使われる設定は表4のとおりです。
+    </p>
+    <figure>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>モデル</th><th>運用機関</th><th>範囲</th><th>水平解像度</th><th>出力間隔</th><th>予報期間</th><th>更新</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><strong>MSM</strong><br><code>jma_msm</code></td><td>気象庁（JMA）</td><td>日本・朝鮮半島周辺</td><td>0.05°（約 5 km）</td><td>1 時間</td><td>4 日</td><td>3 時間ごと</td></tr>
+            <tr><td><strong>IFS HRES</strong><br><code>ecmwf_ifs</code></td><td>ECMWF</td><td>全球</td><td>約 9 km（O1280 格子）</td><td>1 時間（90 時間以降 3 時間、144 時間以降 6 時間）</td><td>15 日</td><td>6 時間ごと</td></tr>
+            <tr><td><strong>GFS</strong><br><code>gfs_seamless</code></td><td>NOAA NCEP</td><td>全球</td><td>0.11°（約 13 km）</td><td>1 時間（120 時間以降 3 時間）</td><td>16 日</td><td>6 時間ごと</td></tr>
+            <tr><td><strong>ICON</strong><br><code>icon_seamless</code></td><td>ドイツ気象局（DWD）</td><td>全球</td><td>0.1°（約 11 km）</td><td>1 時間（78 時間以降 3 時間）</td><td>7.5 日</td><td>6 時間ごと</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <figcaption>
+        <span class="fig-no">表4</span>AstroWeather が使う 4 モデルの諸元。値は Open-Meteo が配信するデータの仕様（2026 年 10 月時点）で、Open-Meteo はすべて 1 時間ごとに補間して提供する（Open-Meteo, n.d.-b, n.d.-c, n.d.-d, n.d.-e）。
+        GFS・ICON の「seamless」は高解像度の地域モデル（米国の HRRR、欧州の ICON-EU・ICON-D2）を組み合わせる設定だが、日本はそれらの範囲外のため、全球モデルの値になる。
+      </figcaption>
+    </figure>
+    <figure class="card">
+      <svg viewBox="0 0 760 290" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="4モデルの格子間隔の比較" font-family="'Noto Sans JP', sans-serif">
+<text x="100.0" y="24" text-anchor="middle" font-size="15" font-weight="700" fill="#3D3A34">MSM</text>
+<text x="100.0" y="44" text-anchor="middle" font-size="13" fill="#7A756B">気象庁・約5 km</text>
+<rect x="25" y="58" width="150" height="150" fill="#FFFFFF" stroke="#7A756B" stroke-width="1.2"/>
+<line x1="50.0" y1="58" x2="50.0" y2="208" stroke="#4A7A8C" stroke-width="1" opacity="0.7"/>
+<line x1="25" y1="83.0" x2="175" y2="83.0" stroke="#4A7A8C" stroke-width="1" opacity="0.7"/>
+<line x1="75.0" y1="58" x2="75.0" y2="208" stroke="#4A7A8C" stroke-width="1" opacity="0.7"/>
+<line x1="25" y1="108.0" x2="175" y2="108.0" stroke="#4A7A8C" stroke-width="1" opacity="0.7"/>
+<line x1="100.0" y1="58" x2="100.0" y2="208" stroke="#4A7A8C" stroke-width="1" opacity="0.7"/>
+<line x1="25" y1="133.0" x2="175" y2="133.0" stroke="#4A7A8C" stroke-width="1" opacity="0.7"/>
+<line x1="125.0" y1="58" x2="125.0" y2="208" stroke="#4A7A8C" stroke-width="1" opacity="0.7"/>
+<line x1="25" y1="158.0" x2="175" y2="158.0" stroke="#4A7A8C" stroke-width="1" opacity="0.7"/>
+<line x1="150.0" y1="58" x2="150.0" y2="208" stroke="#4A7A8C" stroke-width="1" opacity="0.7"/>
+<line x1="25" y1="183.0" x2="175" y2="183.0" stroke="#4A7A8C" stroke-width="1" opacity="0.7"/>
+<rect x="25" y="58" width="25.0" height="25.0" fill="#B08968" opacity="0.45"/>
+<text x="100.0" y="232" text-anchor="middle" font-size="13" fill="#7A756B">30 km四方に 約36 格子</text>
+<text x="285.0" y="24" text-anchor="middle" font-size="15" font-weight="700" fill="#3D3A34">ECMWF IFS</text>
+<text x="285.0" y="44" text-anchor="middle" font-size="13" fill="#7A756B">ECMWF・約9 km</text>
+<rect x="210" y="58" width="150" height="150" fill="#FFFFFF" stroke="#7A756B" stroke-width="1.2"/>
+<line x1="255.0" y1="58" x2="255.0" y2="208" stroke="#4A7A8C" stroke-width="1" opacity="0.7"/>
+<line x1="210" y1="103.0" x2="360" y2="103.0" stroke="#4A7A8C" stroke-width="1" opacity="0.7"/>
+<line x1="300.0" y1="58" x2="300.0" y2="208" stroke="#4A7A8C" stroke-width="1" opacity="0.7"/>
+<line x1="210" y1="148.0" x2="360" y2="148.0" stroke="#4A7A8C" stroke-width="1" opacity="0.7"/>
+<line x1="345.0" y1="58" x2="345.0" y2="208" stroke="#4A7A8C" stroke-width="1" opacity="0.7"/>
+<line x1="210" y1="193.0" x2="360" y2="193.0" stroke="#4A7A8C" stroke-width="1" opacity="0.7"/>
+<rect x="210" y="58" width="45.0" height="45.0" fill="#B08968" opacity="0.45"/>
+<text x="285.0" y="232" text-anchor="middle" font-size="13" fill="#7A756B">30 km四方に 約11 格子</text>
+<text x="470.0" y="24" text-anchor="middle" font-size="15" font-weight="700" fill="#3D3A34">ICON</text>
+<text x="470.0" y="44" text-anchor="middle" font-size="13" fill="#7A756B">DWD・約11 km</text>
+<rect x="395" y="58" width="150" height="150" fill="#FFFFFF" stroke="#7A756B" stroke-width="1.2"/>
+<line x1="450.0" y1="58" x2="450.0" y2="208" stroke="#4A7A8C" stroke-width="1" opacity="0.7"/>
+<line x1="395" y1="113.0" x2="545" y2="113.0" stroke="#4A7A8C" stroke-width="1" opacity="0.7"/>
+<line x1="505.0" y1="58" x2="505.0" y2="208" stroke="#4A7A8C" stroke-width="1" opacity="0.7"/>
+<line x1="395" y1="168.0" x2="545" y2="168.0" stroke="#4A7A8C" stroke-width="1" opacity="0.7"/>
+<rect x="395" y="58" width="55.0" height="55.0" fill="#B08968" opacity="0.45"/>
+<text x="470.0" y="232" text-anchor="middle" font-size="13" fill="#7A756B">30 km四方に 約7 格子</text>
+<text x="655.0" y="24" text-anchor="middle" font-size="15" font-weight="700" fill="#3D3A34">GFS</text>
+<text x="655.0" y="44" text-anchor="middle" font-size="13" fill="#7A756B">NOAA・約13 km</text>
+<rect x="580" y="58" width="150" height="150" fill="#FFFFFF" stroke="#7A756B" stroke-width="1.2"/>
+<line x1="645.0" y1="58" x2="645.0" y2="208" stroke="#4A7A8C" stroke-width="1" opacity="0.7"/>
+<line x1="580" y1="123.0" x2="730" y2="123.0" stroke="#4A7A8C" stroke-width="1" opacity="0.7"/>
+<line x1="710.0" y1="58" x2="710.0" y2="208" stroke="#4A7A8C" stroke-width="1" opacity="0.7"/>
+<line x1="580" y1="188.0" x2="730" y2="188.0" stroke="#4A7A8C" stroke-width="1" opacity="0.7"/>
+<rect x="580" y="58" width="65.0" height="65.0" fill="#B08968" opacity="0.45"/>
+<text x="655.0" y="232" text-anchor="middle" font-size="13" fill="#7A756B">30 km四方に 約5 格子</text>
+<g font-size="13" fill="#7A756B"><line x1="25" y1="268" x2="75" y2="268" stroke="#3D3A34" stroke-width="2"/><line x1="25" y1="263" x2="25" y2="273" stroke="#3D3A34" stroke-width="2"/><line x1="75" y1="263" x2="75" y2="273" stroke="#3D3A34" stroke-width="2"/><text x="84" y="273">10 km</text>
+<rect x="170" y="261" width="14" height="14" fill="#B08968" opacity="0.45"/><text x="190" y="273">1格子が代表する範囲（この中の地形差・雲の差は表せない）</text></g>
+</svg>
+      <figcaption>
+        <span class="fig-no">図2</span>4 モデルの格子間隔を同じ縮尺で比べた模式図（30 km 四方）。1 つの予報値は 1 マスの範囲を代表するため、マスより小さな地形の違い（谷と尾根など）は区別できない。格子間隔は表4の値を用いた。
+      </figcaption>
+    </figure>
+
+    <h3>MSM（気象庁 メソモデル）</h3>
+    <p>
+      気象庁が日本周辺を対象に運用する<strong>領域モデル</strong>で、4 モデルの中で最も細かい約 5 km 間隔です。
+      現在の MSM には気象庁が開発した非静力学モデル asuca が使われており、5 km 解像度の領域モデルとしては 2017 年に運用が始まりました（Ishida et al., 2022）。
+      地形に沿った雲や局地的な降水を表しやすい反面、<strong>予報期間は約 4 日</strong>と短く、それより先の日付では MSM の欄が空になります（「対象外/期間外」と表示）。
+    </p>
+    <p>
+      Open-Meteo で配信される MSM は、データの利用条件による限定版です。最大瞬間風速（ガスト）は含まれないため、詳細予報のガストは MSM 以外の 3 モデルだけになります（Open-Meteo, n.d.-e）。
+    </p>
+
+    <h3>ECMWF IFS HRES（欧州中期予報センター）</h3>
+    <p>
+      ECMWF は欧州の国々が共同で運営する国際機関で、IFS（Integrated Forecasting System）は全球を対象とする数値予報システムです。
+      HRES は約 9 km の高解像度予報で、2016 年 3 月の更新で導入された<strong>八面体縮約ガウス格子（O1280）</strong>上で計算されています（Malardel et al., 2016）。
+      Open-Meteo はこの 9 km のリアルタイム予報を、格子を変えずにそのまま配信しています（Open-Meteo, n.d.-c）。
+      15 日先まで予報があるため、MSM の予報期間が終わったあとの日付でも比較に使えます。
+    </p>
+
+    <h3>GFS（米国海洋大気庁）</h3>
+    <p>
+      GFS（Global Forecast System）は NOAA の環境予測センター（NCEP）が運用する全球モデルです。
+      力学コアには、立方体を球面に投影した格子（cubed-sphere）上の有限体積法である FV3 が使われています（Putman &amp; Lin, 2007）。
+      FV3 は 2016 年に米国の次世代全球予報システムの力学コアに選ばれ（Zhang et al., 2019）、GFS は 2019 年から FV3 ベースで運用されています（Chen et al., 2025）。
+      Open-Meteo では地上の要素を 0.11°（約 13 km）、16 日先まで配信しています（Open-Meteo, n.d.-d）。
+    </p>
+
+    <h3>ICON（ドイツ気象局）</h3>
+    <p>
+      ICON（ICOsahedral Non-hydrostatic）は、ドイツ気象局（DWD）とマックス・プランク気象学研究所（MPI-M）が共同開発したモデルで、
+      正二十面体を細かく分割した三角形の格子で地球を覆い、非静力学方程式を解きます（Zängl et al., 2015）。
+      Open-Meteo では全球版（ICON Global）を 0.1°（約 11 km）の格子にして、7.5 日先まで配信しています（Open-Meteo, n.d.-b）。
+    </p>
+    <div class="box note">
+      <span class="box-label">補足：配信形式の変更予定</span>
+      <p>
+        Open-Meteo によると、2026 年 11 月 30 日以降、DWD のデータ配信の変更にあわせて ICON の格子が元の格子のまま配信されるようになり、視程は提供されなくなる予定です（Open-Meteo, n.d.-b）。
+        AstroWeather の視程はもともと ECMWF と GFS のみを表示しているため、表示への影響はありません。
+      </p>
+    </div>
+
+    <h3>なぜ 4 つのモデルを比べるのか</h3>
+    <p>
+      数値予報は、初期値のわずかな違いやモデルごとの雲・降水の扱い方によって結果が変わります。
+      運用機関も計算方法も異なる 4 つのモデルが<strong>そろって晴れ</strong>を予報していれば、その予報は比較的信頼しやすく、
+      <strong>意見が割れている</strong>ときは不確実性が大きいと考えられます。
+      AstroWeather では、スコアには毎時の中央値を使いつつ、モデル別スコアや詳細予報のヒートマップで 4 モデルの違いも見られるようにしています。
+      予報が割れている夜は、出発前に最新の予報をもう一度確認するのがおすすめです。
+    </p>
+
+    <!-- 参考文献（APAスタイル） -->
+    <section class="references">
+      <h2>参考文献</h2>
+      <ul>
+        <li>Chen, J.-H., Marchok, T., Bender, M., Gao, K., Gopalakrishnan, S., Harris, L., Hazelton, A., Liu, B., Mehra, A., Morin, M., Yang, F., Zhang, X., Zhang, Z., &amp; Zhou, L. (2025). Closing the gap—Hurricane prediction advances in the U.S. FV3-based models. <i>Bulletin of the American Meteorological Society, 106</i>(7), E1211–E1220. <a href="https://doi.org/10.1175/BAMS-D-24-0036.1" target="_blank" rel="noreferrer">https://doi.org/10.1175/BAMS-D-24-0036.1</a></li>
+        <li>Ishida, J., Aranami, K., Kawano, K., Matsubayashi, K., Kitamura, Y., &amp; Muroi, C. (2022). ASUCA: The JMA operational non-hydrostatic model. <i>Journal of the Meteorological Society of Japan. Ser. II, 100</i>(5), 825–846. <a href="https://doi.org/10.2151/jmsj.2022-043" target="_blank" rel="noreferrer">https://doi.org/10.2151/jmsj.2022-043</a></li>
+        <li>Malardel, S., Wedi, N., Deconinck, W., Diamantakis, M., Kühnlein, C., Mozdzynski, G., Hamrud, M., &amp; Smolarkiewicz, P. (2016). A new grid for the IFS. <i>ECMWF Newsletter, 146</i>, 23–28. <a href="https://doi.org/10.21957/zwdu9u5i" target="_blank" rel="noreferrer">https://doi.org/10.21957/zwdu9u5i</a></li>
+        <li>Open-Meteo. (n.d.-a). <i>Docs</i> [Weather forecast API documentation]. Retrieved October 29, 2026, from <a href="https://open-meteo.com/en/docs" target="_blank" rel="noreferrer">https://open-meteo.com/en/docs</a></li>
+        <li>Open-Meteo. (n.d.-b). <i>DWD ICON API</i>. Retrieved October 29, 2026, from <a href="https://open-meteo.com/en/docs/dwd-api" target="_blank" rel="noreferrer">https://open-meteo.com/en/docs/dwd-api</a></li>
+        <li>Open-Meteo. (n.d.-c). <i>ECMWF forecast API</i>. Retrieved October 29, 2026, from <a href="https://open-meteo.com/en/docs/ecmwf-api" target="_blank" rel="noreferrer">https://open-meteo.com/en/docs/ecmwf-api</a></li>
+        <li>Open-Meteo. (n.d.-d). <i>GFS &amp; HRRR API</i>. Retrieved October 29, 2026, from <a href="https://open-meteo.com/en/docs/gfs-api" target="_blank" rel="noreferrer">https://open-meteo.com/en/docs/gfs-api</a></li>
+        <li>Open-Meteo. (n.d.-e). <i>JMA API</i>. Retrieved October 29, 2026, from <a href="https://open-meteo.com/en/docs/jma-api" target="_blank" rel="noreferrer">https://open-meteo.com/en/docs/jma-api</a></li>
+        <li>Open-Meteo. (n.d.-f). <i>Licence</i>. Retrieved October 29, 2026, from <a href="https://open-meteo.com/en/licence" target="_blank" rel="noreferrer">https://open-meteo.com/en/licence</a></li>
+        <li>Open-Meteo. (n.d.-g). <i>Terms</i>. Retrieved October 29, 2026, from <a href="https://open-meteo.com/en/terms" target="_blank" rel="noreferrer">https://open-meteo.com/en/terms</a></li>
+        <li>Putman, W. M., &amp; Lin, S.-J. (2007). Finite-volume transport on various cubed-sphere grids. <i>Journal of Computational Physics, 227</i>(1), 55–78. <a href="https://doi.org/10.1016/j.jcp.2007.07.022" target="_blank" rel="noreferrer">https://doi.org/10.1016/j.jcp.2007.07.022</a></li>
+        <li>Zängl, G., Reinert, D., Rípodas, P., &amp; Baldauf, M. (2015). The ICON (ICOsahedral Non-hydrostatic) modelling framework of DWD and MPI-M: Description of the non-hydrostatic dynamical core. <i>Quarterly Journal of the Royal Meteorological Society, 141</i>(687), 563–579. <a href="https://doi.org/10.1002/qj.2378" target="_blank" rel="noreferrer">https://doi.org/10.1002/qj.2378</a></li>
+        <li>Zhang, C., Xue, M., Supinie, T. A., Kong, F., Snook, N., Thomas, K. W., Brewster, K., Jung, Y., Harris, L. M., &amp; Lin, S.-J. (2019). How well does an FV3-based model predict precipitation at a convection-allowing resolution? Results from CAPS forecasts for the 2018 NOAA Hazardous Weather Test Bed with different physics combinations. <i>Geophysical Research Letters, 46</i>(6), 3523–3531. <a href="https://doi.org/10.1029/2018GL081702" target="_blank" rel="noreferrer">https://doi.org/10.1029/2018GL081702</a></li>
+        <li>Zippenfenig, P. (2023). <i>Open-Meteo.com Weather API</i> [Computer software]. Zenodo. <a href="https://doi.org/10.5281/ZENODO.7970649" target="_blank" rel="noreferrer">https://doi.org/10.5281/ZENODO.7970649</a></li>
+      </ul>
+    </section>
+
+  </main>
+
+  <footer class="doc-footer"><a href="./">AstroWeather に戻る</a> ・ 気象データ: Open-Meteo.com（CC BY 4.0）</footer>
+</div>
+
+<script>
+/* ===== 目次の自動生成（h2/h3 → 入れ子リスト） ===== */
+document.addEventListener('DOMContentLoaded', function () {
+  const content = document.getElementById('content');
+  const tocList = document.getElementById('toc-list');
+  const headings = content.querySelectorAll('h2, h3');
+  let currentOl = tocList, lastLi = null;
+
+  headings.forEach(function (h, i) {
+    if (h.closest('section.references')) { /* 参考文献も目次に含める */ }
+    if (!h.id) h.id = 'sec-' + (i + 1);
+    const li = document.createElement('li');
+    const a = document.createElement('a');
+    a.href = '#' + h.id;
+    a.textContent = h.textContent;
+    li.appendChild(a);
+    if (h.tagName === 'H2') {
+      tocList.appendChild(li);
+      lastLi = li; currentOl = null;
+    } else {
+      if (!currentOl) {
+        currentOl = document.createElement('ol');
+        (lastLi || tocList).appendChild(currentOl);
+      }
+      currentOl.appendChild(li);
+    }
+  });
+  if (!headings.length) document.getElementById('toc').style.display = 'none';
+});
+</script>
+</body>
+</html>

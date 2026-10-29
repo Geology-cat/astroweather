@@ -10,6 +10,7 @@ import { CloudMapPanel } from './components/CloudMapPanel';
 import { ComparePanel } from './components/ComparePanel';
 import { DetailForecastPanel } from './components/DetailForecastPanel';
 import { Header } from './components/Header';
+import { Icon } from './components/Icon';
 import { MapPanel } from './components/MapPanel';
 import { ScoreCard } from './components/ScoreCard';
 
@@ -128,6 +129,17 @@ export function App() {
           selectedId={activePlace.id}
           onSelectPlace={handleSelectPlace}
         />
+
+        <a className="guide-link" href={`${import.meta.env.BASE_URL}guide.html`}>
+          <span className="guide-link-icon">
+            <Icon name="book" size={20} />
+          </span>
+          <span className="guide-link-text">
+            <b>解説ページ</b>
+            <span className="muted">夜間晴天スコアの算出方法と、予報データ（Open-Meteo・4 つの数値予報モデル）について</span>
+          </span>
+          <Icon name="chevronRight" size={18} className="guide-link-arrow" />
+        </a>
 
         <footer className="app-footer">
           <span>
