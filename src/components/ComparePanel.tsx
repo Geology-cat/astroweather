@@ -5,7 +5,7 @@ import { computeNightScore, hourlyClear, scoreColor } from '../lib/score';
 import { formatLatLon, type Place } from '../lib/storage';
 import { HOUR_MS, formatDuration, formatHM, jstNoon, type DateKey } from '../lib/time';
 import { useForecasts } from '../lib/useForecasts';
-import { ClearStrip, StripAxis } from './ClearStrip';
+import { ClearLegend, ClearStrip, StripAxis } from './ClearStrip';
 import { CardTitle, Icon } from './Icon';
 import { ScoreBadge } from './ScoreCard';
 
@@ -173,6 +173,13 @@ export function ComparePanel({ dateKey, places, currentPlace, selectedId, onSele
               })}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {list.length > 0 && (
+        <div className="strip-legend-row">
+          <span className="muted">時間帯ストリップの色＝晴れ度（100−全雲量、降水時は0）。暗い部分は集計窓の外です。</span>
+          <ClearLegend />
         </div>
       )}
     </section>
