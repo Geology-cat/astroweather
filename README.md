@@ -32,6 +32,13 @@ npm test
 npm run dev
 ```
 
+## セキュリティ
+
+- 本番ビルドの `index.html` には Content Security Policy（`vite.config.ts`）を `<meta>` で埋め込み、スクリプトは自サイトのもののみ、通信先は使用する API・地図タイル・空間データに限定しています
+- 解説ページ（`public/guide.html`）の MathJax は CDN ではなく自サイトから配信します（`npm run dev` / `npm run build` 時に `scripts/copy-vendor.mjs` が `node_modules` から `public/vendor/` へコピー）
+- KML / KMZ の読み込みはファイルサイズ・展開後サイズ・地点数・地点名の長さに上限を設けています
+- GitHub Actions はアクションをコミット SHA で固定し、権限をジョブごとに最小化、依存パッケージのインストール時スクリプトは実行しません
+
 ## クレジット・データ出典
 
 - 気象データ: [Open-Meteo.com](https://open-meteo.com/) (CC BY 4.0)

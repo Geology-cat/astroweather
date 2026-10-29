@@ -5,7 +5,7 @@ import { parseLatLonInput, searchPlaceCandidates, type GeocodeCandidate } from '
 import { buildKml, buildKmz, downloadFile, isSameLocation, readPlacesFile, type KmlPoint } from '../lib/kml';
 import { PIN_OFFSET, TILE_CONFIG, TILE_IDS, baseStyle, createPinMarker, maplibregl, type TileLayerId } from '../lib/maplibre';
 import { computeNightScore, scoreColor } from '../lib/score';
-import { formatLatLon, newPlaceId, type Place } from '../lib/storage';
+import { MAX_PLACE_NAME_LENGTH, formatLatLon, newPlaceId, type Place } from '../lib/storage';
 import { toDateKey, type DateKey } from '../lib/time';
 import { useForecasts } from '../lib/useForecasts';
 import { CardTitle, Icon } from './Icon';
@@ -166,7 +166,7 @@ export function MapPanel({ dateKey, places, currentPlace, selectedId, onSelectPl
   }, [allPlaces, forecasts, dateKey, selectedId, onSelectPlace]);
 
   const registerPlace = (name: string, lat: number, lon: number) => {
-    const finalName = name.trim() || `地点 (${lat.toFixed(2)}, ${lon.toFixed(2)})`;
+    const finalName = name.trim().slice(0, MAX_PLACE_NAME_LENGTH) || `地点 (${lat.toFixed(2)}, ${lon.toFixed(2)})`;
     const created: Place = { id: newPlaceId(), name: finalName, lat, lon };
     onAddPlace(created);
     onSelectPlace(created.id);
@@ -390,6 +390,7 @@ export function MapPanel({ dateKey, places, currentPlace, selectedId, onSelectPl
               type="text"
               className="input name-input"
               placeholder="地点名（任意）"
+              maxLength={MAX_PLACE_NAME_LENGTH}
               value={manualName}
               onChange={(e) => setManualName(e.target.value)}
               onKeyDown={handleCoordKeyDown}
@@ -448,6 +449,7 @@ export function MapPanel({ dateKey, places, currentPlace, selectedId, onSelectPl
               type="text"
               className="input grow"
               placeholder="観測地点の名前を入力…"
+              maxLength={MAX_PLACE_NAME_LENGTH}
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
               onKeyDown={(e) => isSubmitEnter(e) && handleAddClicked()}

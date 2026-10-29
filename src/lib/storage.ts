@@ -12,6 +12,27 @@ export const CURRENT_ID = 'current';
 const PLACES_KEY = 'aw.places';
 const SELECTED_KEY = 'aw.selected';
 
+/** 地点名の最大文字数（KML 読み込みや保存データの改ざんで極端に長い名前が入らないように） */
+export const MAX_PLACE_NAME_LENGTH = 100;
+
+/** 地点として扱える値か（保存データは利用者の手元で書き換えられるので、読み込み時に必ず検証する） */
+export function isValidPlace(p: unknown): p is Place {
+  if (!p || typeof p !== 'object') return false;
+  const v = p as Record<string, unknown>;
+  return (
+    typeof v.id === 'string' &&
+    v.id.startsWith('p') &&
+    v.id.length <= 64 &&
+    typeof v.name === 'string' &&
+    typeof v.lat === 'number' &&
+    typeof v.lon === 'number' &&
+    Number.isFinite(v.lat) &&
+    Number.isFinite(v.lon) &&
+    Math.abs(v.lat) <= 90 &&
+    Math.abs(v.lon) <= 180
+  );
+}
+
 /** 現在地が取得できないときのフォールバック座標 */
 export const FALLBACK_PLACE: Place = { id: CURRENT_ID, name: '現在地（未取得）', lat: 43.0643, lon: 141.3469 };
 
@@ -21,16 +42,10 @@ export function loadPlaces(): Place[] {
     if (!raw) return [];
     const v = JSON.parse(raw);
     if (!Array.isArray(v)) return [];
-    // ユーザー自身が登録した地点（id が "p" で始まるもの）のみを残し、旧プリセットは除外する
-    const userPlaces = v.filter(
-      (p): p is Place =>
-        p &&
-        typeof p.id === 'string' &&
-        p.id.startsWith('p') &&
-        typeof p.name === 'string' &&
-        typeof p.lat === 'number' &&
-        typeof p.lon === 'number',
-    );
+    // ユーザー自身が登録した地点（id が "p" で始まるもの）のうち、値が正しいものだけを残す（旧プリセットも除外される）
+    const userPlaces = v
+      .filter(isValidPlace)
+      .map((p) => ({ id: p.id, name: p.name.slice(0, MAX_PLACE_NAME_LENGTH), lat: p.lat, lon: p.lon }));
     if (userPlaces.length !== v.length) {
       savePlaces(userPlaces);
     }
@@ -40,16 +55,30 @@ export function loadPlaces(): Place[] {
   }
 }
 
+// localStorage はプライベートブラウズや容量超過で例外を投げることがあるため、
+// 失敗しても画面が止まらないよう、読み書きはすべて例外を握りつぶす（保存されないだけ）
 export function savePlaces(places: Place[]) {
-  localStorage.setItem(PLACES_KEY, JSON.stringify(places));
+  try {
+    localStorage.setItem(PLACES_KEY, JSON.stringify(places));
+  } catch {
+    /* noop */
+  }
 }
 
 export function loadSelected(): string {
-  return localStorage.getItem(SELECTED_KEY) ?? CURRENT_ID;
+  try {
+    return localStorage.getItem(SELECTED_KEY) ?? CURRENT_ID;
+  } catch {
+    return CURRENT_ID;
+  }
 }
 
 export function saveSelected(id: string) {
-  localStorage.setItem(SELECTED_KEY, id);
+  try {
+    localStorage.setItem(SELECTED_KEY, id);
+  } catch {
+    /* noop */
+  }
 }
 
 export function newPlaceId(): string {

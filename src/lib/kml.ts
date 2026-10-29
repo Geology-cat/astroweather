@@ -1,7 +1,15 @@
 // 観測地点の KML / KMZ 読み込み・書き出し（Google マイマップ・Google Earth などとの相互運用）。
 // KMZ は doc.kml などを収めた ZIP なので fflate で展開・圧縮する。
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
-import type { Place } from './storage';
+import { MAX_PLACE_NAME_LENGTH, type Place } from './storage';
+
+// 読み込みの上限。巨大なファイルや、展開すると膨れ上がる ZIP（ZIP 爆弾）でブラウザが固まらないようにする
+/** 読み込むファイル（.kml / .kmz）の最大サイズ */
+export const MAX_FILE_BYTES = 20 * 1024 * 1024;
+/** KMZ から展開する KML の最大サイズ */
+export const MAX_KML_BYTES = 50 * 1024 * 1024;
+/** 1 ファイルから取り込む地点の最大数 */
+export const MAX_POINTS = 2000;
 
 export interface KmlPoint {
   name: string;
@@ -51,9 +59,13 @@ export function parseKml(text: string): KmlParseResult {
     }
     // プレースマーク直下の <name>（フォルダ名などを拾わないよう直下に限る）
     const nameEl = Array.from(pm.children).find((c) => c.localName === 'name');
-    const name = nameEl?.textContent?.trim() || `地点 ${i + 1}`;
+    const name = (nameEl?.textContent?.trim() || `地点 ${i + 1}`).slice(0, MAX_PLACE_NAME_LENGTH);
     points.push({ name, ...coord });
   });
+
+  if (points.length > MAX_POINTS) {
+    throw new Error(`地点が多すぎます（${points.length} 件）。1 ファイルあたり ${MAX_POINTS} 件までにしてください。`);
+  }
 
   return {
     points,
@@ -66,9 +78,20 @@ export function parseKml(text: string): KmlParseResult {
 export function kmzToKml(data: Uint8Array): string {
   let files: Record<string, Uint8Array>;
   try {
-    files = unzipSync(data, { filter: (f) => f.name.toLowerCase().endsWith('.kml') });
-  } catch {
-    throw new Error('KMZ ファイルを展開できませんでした。');
+    files = unzipSync(data, {
+      filter: (f) => {
+        if (!f.name.toLowerCase().endsWith('.kml')) return false;
+        // 展開後のサイズは ZIP の目録に書かれた値で事前に確かめ、大きすぎるものは展開しない
+        if (f.originalSize > MAX_KML_BYTES) throw new Error('too large');
+        return true;
+      },
+    });
+  } catch (e) {
+    throw new Error(
+      e instanceof Error && e.message === 'too large'
+        ? `KMZ の中の KML が大きすぎます（${MAX_KML_BYTES / 1024 / 1024} MB まで）。`
+        : 'KMZ ファイルを展開できませんでした。',
+    );
   }
   const names = Object.keys(files);
   const main = names.find((n) => n.toLowerCase() === 'doc.kml') ?? names.sort((a, b) => a.split('/').length - b.split('/').length)[0];
@@ -78,6 +101,9 @@ export function kmzToKml(data: Uint8Array): string {
 
 /** ファイル（.kml / .kmz）を読み込んで点を取り出す。拡張子が不明でも ZIP の署名で判別する */
 export async function readPlacesFile(file: File): Promise<KmlParseResult> {
+  if (file.size > MAX_FILE_BYTES) {
+    throw new Error(`ファイルが大きすぎます（${MAX_FILE_BYTES / 1024 / 1024} MB まで）。`);
+  }
   const buf = new Uint8Array(await file.arrayBuffer());
   const isZip = buf[0] === 0x50 && buf[1] === 0x4b; // "PK"
   return parseKml(isZip ? kmzToKml(buf) : strFromU8(buf));

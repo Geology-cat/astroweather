@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from 'vitest';
 import { strToU8, zipSync } from 'fflate';
-import { buildKml, buildKmz, isSameLocation, kmzToKml, parseKml } from './kml';
+import { MAX_KML_BYTES, MAX_POINTS, buildKml, buildKmz, isSameLocation, kmzToKml, parseKml } from './kml';
+import { MAX_PLACE_NAME_LENGTH } from './storage';
 
 // Google マイマップのエクスポートに近い形（フォルダ・CDATA・線を含む）
 const MY_MAPS_KML = `<?xml version="1.0" encoding="UTF-8"?>
@@ -102,5 +103,33 @@ describe('isSameLocation', () => {
   it('約 1m 以内なら同じ地点とみなす', () => {
     expect(isSameLocation({ lat: 43.4792, lon: 142.1478 }, { lat: 43.479201, lon: 142.147801 })).toBe(true);
     expect(isSameLocation({ lat: 43.4792, lon: 142.1478 }, { lat: 43.4793, lon: 142.1478 })).toBe(false);
+  });
+});
+
+describe('読み込みの上限', () => {
+  const pm = (name: string) => `<Placemark><name>${name}</name><Point><coordinates>140,40</coordinates></Point></Placemark>`;
+
+  it('長すぎる地点名は切り詰める', () => {
+    const r = parseKml(`<kml>${pm('あ'.repeat(500))}</kml>`);
+    expect(r.points[0].name).toHaveLength(MAX_PLACE_NAME_LENGTH);
+  });
+
+  it('地点が多すぎるファイルはエラーにする', () => {
+    expect(() => parseKml(`<kml>${pm('x').repeat(MAX_POINTS + 1)}</kml>`)).toThrow(/多すぎます/);
+  });
+
+  it('スクリプトを含む名前も文字列として扱い、実行しない', () => {
+    const r = parseKml(`<kml>${pm('<![CDATA[<img src=x onerror="alert(1)">]]>')}</kml>`);
+    expect(r.points[0].name).toBe('<img src=x onerror="alert(1)">');
+    // 書き出し時はエスケープされる
+    expect(buildKml([{ id: 'p1', name: r.points[0].name, lat: 40, lon: 140 }])).toContain('&lt;img src=x onerror=&quot;alert(1)&quot;&gt;');
+  });
+
+  it('展開すると巨大になる KMZ（ZIP 爆弾）は展開せずにエラーにする', () => {
+    // 同じ文字の繰り返しは極端によく圧縮されるので、小さな KMZ から上限を超える KML ができる
+    const huge = new Uint8Array(MAX_KML_BYTES + 1).fill(0x20);
+    const kmz = zipSync({ 'doc.kml': huge }, { level: 9 });
+    expect(kmz.length).toBeLessThan(1024 * 1024);
+    expect(() => kmzToKml(kmz)).toThrow(/大きすぎます/);
   });
 });
