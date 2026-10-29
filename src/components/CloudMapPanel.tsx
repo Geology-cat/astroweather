@@ -2,9 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import * as maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { getColorScale, getValueFromLatLong, omProtocol } from '@openmeteo/weather-map-layer';
-import { nightWindow } from '../lib/astro';
-import { COMPARE_VARS } from '../lib/forecast';
-import { computeNightScore, scoreColor } from '../lib/score';
+import type { ModelId } from '../lib/forecast';
+import { scoreColor } from '../lib/score';
 import {
   CLOUD_LAYERS,
   SPATIAL_MODELS,
@@ -145,7 +144,9 @@ export function CloudMapPanel({ dateKey, places, currentPlace, selectedId, onSel
   const [probe, setProbe] = useState<ProbePoint | null>(null);
 
   const allPlaces = places.length > 0 ? places : [currentPlace];
-  const { data: forecasts } = useForecasts(allPlaces, COMPARE_VARS);
+  // 登録地点マーカーに全4層（全雲量・上層・中層・下層）の指定時刻の雲量%を表示するために4層を取得
+  const CLOUD_MARKER_VARS = ['cloud_cover', 'cloud_cover_low', 'cloud_cover_mid', 'cloud_cover_high'] as const;
+  const { data: forecasts } = useForecasts(allPlaces, CLOUD_MARKER_VARS);
 
   const defaultTargetMs = (key: DateKey) => jstNoon(key).getTime() + 9 * HOUR_MS; // 21:00 JST
 
@@ -366,24 +367,54 @@ export function CloudMapPanel({ dateKey, places, currentPlace, selectedId, onSel
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId]);
 
-  // 登録地点のマーカー（位置確認と地点切替）
+  // 登録地点のマーカー（選択中のレイヤー・モデル・指定時刻における雲量%を表示）
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
     markersRef.current.forEach((m) => m.remove());
     markersRef.current = [];
 
+    const modelKey: ModelId =
+      spatialDomain === 'jma_msm' || spatialDomain === 'jma_seamless'
+        ? 'jma_msm'
+        : spatialDomain === 'ecmwf_ifs'
+          ? 'ecmwf_ifs'
+          : spatialDomain === 'ncep_gfs013'
+            ? 'gfs_seamless'
+            : 'icon_seamless';
+
     allPlaces.forEach((p, idx) => {
-      const win = nightWindow(p, dateKey);
       const fc = forecasts?.[idx];
-      const ns = fc && win ? computeNightScore(fc, win) : null;
-      const sc = ns?.score ?? null;
+      let cloudPct: number | null = null;
+      if (fc && validTimeMs != null && fc.time.length > 0) {
+        let bestIdx = 0;
+        let bestDiff = Infinity;
+        fc.time.forEach((t, i) => {
+          const d = Math.abs(t - validTimeMs);
+          if (d < bestDiff) {
+            bestDiff = d;
+            bestIdx = i;
+          }
+        });
+        // 3時間以内の時刻ステップがあればその雲量を採用（MSM期間外で jma_seamless の場合は ecmwf_ifs 等へフォールバック）
+        if (bestDiff <= 3 * HOUR_MS) {
+          const v =
+            fc.series[cloudVar]?.[modelKey]?.[bestIdx] ??
+            (spatialDomain === 'jma_seamless' ? fc.series[cloudVar]?.ecmwf_ifs?.[bestIdx] : null);
+          if (v != null && Number.isFinite(v)) {
+            cloudPct = Math.round(v);
+          }
+        }
+      }
+
+      // 雲量 0%（快晴）ほど緑、100%（曇天）ほど赤になるよう (100 - cloudPct) で色付け
+      const badgeColor = scoreColor(cloudPct == null ? null : 100 - cloudPct);
 
       const el = document.createElement('button');
       el.type = 'button';
       el.className = p.id === selectedId ? 'map-marker active' : 'map-marker';
-      el.style.borderColor = scoreColor(sc);
-      el.innerHTML = `<span class="mm-score" style="background:${scoreColor(sc)}">${sc ?? '—'}</span><span class="mm-name">${p.name}</span>`;
+      el.style.borderColor = badgeColor;
+      el.innerHTML = `<span class="mm-score" style="background:${badgeColor}">${cloudPct == null ? '—' : `${cloudPct}%`}</span><span class="mm-name">${p.name}</span>`;
       el.onclick = (ev) => {
         ev.stopPropagation();
         onSelectPlace(p.id);
@@ -392,7 +423,7 @@ export function CloudMapPanel({ dateKey, places, currentPlace, selectedId, onSel
       const marker = new maplibregl.Marker({ element: el, anchor: 'bottom' }).setLngLat([p.lon, p.lat]).addTo(map);
       markersRef.current.push(marker);
     });
-  }, [allPlaces, forecasts, dateKey, selectedId, onSelectPlace]);
+  }, [allPlaces, forecasts, spatialDomain, cloudVar, validTimeMs, selectedId, onSelectPlace]);
 
   const validTimes = spatialMeta?.validTimes ?? [];
   const currentIdx = validTimeMs != null ? Math.max(0, validTimes.indexOf(validTimeMs)) : 0;
