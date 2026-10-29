@@ -97,6 +97,16 @@ export function App() {
         </div>
       </div>
 
+      <MapPanel
+        dateKey={dateKey}
+        places={places}
+        currentPlace={currentPlace}
+        selectedId={activePlace.id}
+        onSelectPlace={handleSelectPlace}
+        onAddPlace={handleAddPlace}
+        onRemovePlace={handleRemovePlace}
+      />
+
       <ComparePanel
         dateKey={dateKey}
         places={places}
@@ -119,16 +129,6 @@ export function App() {
         currentPlace={currentPlace}
         selectedId={activePlace.id}
         onSelectPlace={handleSelectPlace}
-      />
-
-      <MapPanel
-        dateKey={dateKey}
-        places={places}
-        currentPlace={currentPlace}
-        selectedId={activePlace.id}
-        onSelectPlace={handleSelectPlace}
-        onAddPlace={handleAddPlace}
-        onRemovePlace={handleRemovePlace}
       />
 
       <footer className="app-footer">

@@ -412,9 +412,9 @@ export function CloudMapPanel({ dateKey, places, currentPlace, selectedId, onSel
 
       const el = document.createElement('button');
       el.type = 'button';
-      el.className = p.id === selectedId ? 'map-marker active' : 'map-marker';
-      el.style.borderColor = badgeColor;
-      el.innerHTML = `<span class="mm-score" style="background:${badgeColor}">${cloudPct == null ? '—' : `${cloudPct}%`}</span><span class="mm-name">${p.name}</span>`;
+      el.className = p.id === selectedId ? 'map-pin active' : 'map-pin';
+      el.style.setProperty('--pin-color', badgeColor);
+      el.innerHTML = `<span class="pin-bubble"><span class="pin-badge">${cloudPct == null ? '—' : `${cloudPct}%`}</span><span class="pin-label">${p.name}</span></span><span class="pin-stem"></span><span class="pin-tip"></span>`;
       el.onclick = (ev) => {
         ev.stopPropagation();
         onSelectPlace(p.id);

@@ -146,12 +146,13 @@ export function MapPanel({ dateKey, places, currentPlace, selectedId, onSelectPl
       const fc = forecasts?.[idx];
       const ns = fc && win ? computeNightScore(fc, win) : null;
       const sc = ns?.score ?? null;
+      const col = scoreColor(sc);
 
       const el = document.createElement('button');
       el.type = 'button';
-      el.className = p.id === selectedId ? 'map-marker active' : 'map-marker';
-      el.style.borderColor = scoreColor(sc);
-      el.innerHTML = `<span class="mm-score" style="background:${scoreColor(sc)}">${sc ?? '—'}</span><span class="mm-name">${p.name}</span>`;
+      el.className = p.id === selectedId ? 'map-pin active' : 'map-pin';
+      el.style.setProperty('--pin-color', col);
+      el.innerHTML = `<span class="pin-bubble"><span class="pin-badge">${sc ?? '—'}</span><span class="pin-label">${p.name}</span></span><span class="pin-stem"></span><span class="pin-tip"></span>`;
       el.onclick = (ev) => {
         ev.stopPropagation();
         onSelectPlace(p.id);
@@ -222,7 +223,7 @@ export function MapPanel({ dateKey, places, currentPlace, selectedId, onSelectPl
     <section className="card">
       <div className="panel-head">
         <div>
-          <h2 className="card-title map">📍 観測地点登録マップ & 地点管理</h2>
+          <h2 className="card-title map">📍 観測地点Map</h2>
           <p className="sub">① 住所・地名検索、② 緯度・経度の直接入力、③ 地図クリック の3通りで観測地点を登録・削除できます。</p>
         </div>
         <div className="panel-controls">
@@ -323,7 +324,7 @@ export function MapPanel({ dateKey, places, currentPlace, selectedId, onSelectPl
         </div>
       </div>
 
-      <div ref={containerRef} className="map-box" />
+      <div ref={containerRef} className="map-box cloud-map-large" />
 
       {clickedLatLon && (
         <div className="map-add-bar">

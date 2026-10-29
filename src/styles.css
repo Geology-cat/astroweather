@@ -978,30 +978,77 @@ a:hover {
   background: rgba(236, 62, 62, 0.85);
 }
 
-.map-marker {
+.map-pin {
+  --pin-color: #7fd1ae;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  border: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  transform-origin: bottom center;
+  transition: transform 0.12s ease;
+}
+.map-pin:hover {
+  transform: scale(1.06);
+  z-index: 5;
+}
+.map-pin.active {
+  transform: scale(1.1);
+  z-index: 6;
+}
+
+.pin-bubble {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 2px 7px 2px 3px;
+  padding: 3px 9px 3px 4px;
   border-radius: 999px;
-  border: 2px solid;
-  background: rgba(18, 23, 28, 0.9);
-  color: #fff;
+  border: 2px solid var(--pin-color);
+  background: rgba(15, 20, 26, 0.92);
+  color: #f8fafc;
   font-size: 12px;
-  cursor: pointer;
-  box-shadow: 0 3px 10px rgba(0, 0, 0, 0.45);
+  white-space: nowrap;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
 }
-.map-marker.active {
-  transform: scale(1.08);
-  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.35);
+.map-pin.active .pin-bubble {
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.35), 0 4px 12px rgba(0, 0, 0, 0.55);
 }
-.mm-score {
+
+.pin-badge {
   display: inline-block;
-  padding: 1px 5px;
+  padding: 1px 6px;
   border-radius: 999px;
-  color: #111;
+  background: var(--pin-color);
+  color: #0f172a;
   font-weight: 700;
   font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.pin-label {
+  font-weight: 600;
+}
+
+.pin-stem {
+  width: 0;
+  height: 0;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-top: 8px solid var(--pin-color);
+  margin-top: -1px;
+  filter: drop-shadow(0 2px 3px rgba(0, 0, 0, 0.45));
+}
+
+.pin-tip {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--pin-color);
+  border: 1.5px solid #fff;
+  margin-top: -1px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.65);
 }
 
 .map-add-bar {
