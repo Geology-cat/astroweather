@@ -2,6 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'self'; form-action 'none'">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>解説：夜間晴天スコアと予報データ | AstroWeather</title>
 <meta name="description" content="AstroWeather の夜間晴天スコアの算出方法と、気象データの出典（Open-Meteo・気象庁MSM・ECMWF IFS・NOAA GFS・DWD ICON）の解説">
@@ -12,20 +13,10 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&family=Noto+Serif+JP:wght@500;600;700&family=Source+Code+Pro:wght@400;600&display=swap" rel="stylesheet">
 
-<!-- ===== MathJax v3 + mhchem（化学式） ===== -->
-<script>
-window.MathJax = {
-  tex: {
-    inlineMath: [['\\(', '\\)']],
-    displayMath: [['\\[', '\\]']],
-    packages: {'[+]': ['mhchem']},
-    tags: 'ams'
-  },
-  loader: {load: ['[tex]/mhchem']},
-  chtml: {scale: 1.02}
-};
-</script>
-<script defer src="https://cdnjs.cloudflare.com/ajax/libs/mathjax/3.2.2/es5/tex-chtml.min.js"></script>
+<!-- ===== MathJax v3 + mhchem（化学式）=====
+     MathJax は自サイト（vendor/）から配信する。設定と目次生成は guide.js（インラインスクリプトは CSP で禁止） -->
+<script src="guide.js"></script>
+<script defer src="vendor/mathjax/es5/tex-chtml.js"></script>
 
 <style>
 /* =====================================================
@@ -702,35 +693,5 @@ main ul li { margin-bottom: 0.5rem; }
   <footer class="doc-footer"><a href="./">AstroWeather に戻る</a> ・ 気象データ: Open-Meteo.com（CC BY 4.0）</footer>
 </div>
 
-<script>
-/* ===== 目次の自動生成（h2/h3 → 入れ子リスト） ===== */
-document.addEventListener('DOMContentLoaded', function () {
-  const content = document.getElementById('content');
-  const tocList = document.getElementById('toc-list');
-  const headings = content.querySelectorAll('h2, h3');
-  let currentOl = tocList, lastLi = null;
-
-  headings.forEach(function (h, i) {
-    if (h.closest('section.references')) { /* 参考文献も目次に含める */ }
-    if (!h.id) h.id = 'sec-' + (i + 1);
-    const li = document.createElement('li');
-    const a = document.createElement('a');
-    a.href = '#' + h.id;
-    a.textContent = h.textContent;
-    li.appendChild(a);
-    if (h.tagName === 'H2') {
-      tocList.appendChild(li);
-      lastLi = li; currentOl = null;
-    } else {
-      if (!currentOl) {
-        currentOl = document.createElement('ol');
-        (lastLi || tocList).appendChild(currentOl);
-      }
-      currentOl.appendChild(li);
-    }
-  });
-  if (!headings.length) document.getElementById('toc').style.display = 'none';
-});
-</script>
 </body>
 </html>

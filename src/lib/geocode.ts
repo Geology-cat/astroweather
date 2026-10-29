@@ -1,5 +1,6 @@
 // 住所・地名・施設名からのジオコーディング検索と、緯度経度文字列のパース。
 // 国土地理院の地名検索 API（msearch.gsi.go.jp）と OpenStreetMap Nominatim を併用する。
+import { MAX_PLACE_NAME_LENGTH } from './storage';
 
 export interface GeocodeCandidate {
   name: string;
@@ -21,6 +22,10 @@ interface NominatimItem {
   lon?: string;
 }
 
+/** 外部 API の応答は信用せず、座標が数値で範囲内のものだけを候補にする */
+const isValidLatLon = (lat: number, lon: number) =>
+  Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180;
+
 /** 住所・地名・施設名で候補を検索する */
 export async function searchPlaceCandidates(query: string): Promise<GeocodeCandidate[]> {
   const q = query.trim();
@@ -33,10 +38,11 @@ export async function searchPlaceCandidates(query: string): Promise<GeocodeCandi
     .then((items) =>
       items
         .filter((f) => Array.isArray(f.geometry?.coordinates) && f.geometry!.coordinates!.length >= 2)
+        .filter((f) => isValidLatLon(Number(f.geometry!.coordinates![1]), Number(f.geometry!.coordinates![0])))
         .slice(0, 8)
         .map((f) => {
-          const [lon, lat] = f.geometry!.coordinates!;
-          const title = f.properties?.title ?? q;
+          const [lon, lat] = f.geometry!.coordinates!.map(Number);
+          const title = String(f.properties?.title ?? q).slice(0, MAX_PLACE_NAME_LENGTH);
           return {
             name: title,
             detail: `国土地理院 (${lat.toFixed(4)}, ${lon.toFixed(4)})`,
@@ -54,11 +60,11 @@ export async function searchPlaceCandidates(query: string): Promise<GeocodeCandi
     .then(async (r) => (r.ok ? ((await r.json()) as NominatimItem[]) : []))
     .then((items) =>
       items
-        .filter((it) => it.lat != null && it.lon != null)
+        .filter((it) => it.lat != null && it.lon != null && isValidLatLon(Number(it.lat), Number(it.lon)))
         .map((it) => {
           const lat = Number(Number(it.lat).toFixed(4));
           const lon = Number(Number(it.lon).toFixed(4));
-          const short = it.name || it.display_name?.split(',')[0]?.trim() || q;
+          const short = String(it.name || it.display_name?.split(',')[0]?.trim() || q).slice(0, MAX_PLACE_NAME_LENGTH);
           return {
             name: short,
             detail: it.display_name ?? `${lat}, ${lon}`,

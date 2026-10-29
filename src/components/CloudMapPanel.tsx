@@ -378,7 +378,15 @@ export function CloudMapPanel({ dateKey, places, currentPlace, selectedId, onSel
     const el = document.createElement('div');
     el.className = 'probe-marker';
     const valText = probe.loading ? '…' : probe.activeValue == null ? '—%' : `${probe.activeValue}%`;
-    el.innerHTML = `<span class="probe-val">${layerLabel}: <b>${valText}</b></span><span class="probe-dot"></span>`;
+    // innerHTML を使わず DOM を組み立てる（値は定数と数値だけだが、文字列を HTML として解釈させない）
+    const val = document.createElement('span');
+    val.className = 'probe-val';
+    const b = document.createElement('b');
+    b.textContent = valText;
+    val.append(`${layerLabel}: `, b);
+    const dot = document.createElement('span');
+    dot.className = 'probe-dot';
+    el.append(val, dot);
 
     probeMarkerRef.current = new maplibregl.Marker({ element: el, anchor: 'bottom', offset: [0, 5] })
       .setLngLat([probe.lon, probe.lat])
