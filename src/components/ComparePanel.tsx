@@ -12,6 +12,8 @@ import { ScoreBadge } from './ScoreCard';
 interface Props {
   dateKey: DateKey;
   places: Place[];
+  /** 表示しない地点（地図で非表示にしたカテゴリに属するもの） */
+  hiddenPlaceIds: ReadonlySet<string>;
   currentPlace: Place;
   selectedId: string;
   onSelectPlace: (id: string) => void;
@@ -20,7 +22,7 @@ interface Props {
 type SortKey = 'score' | 'clearMs' | 'order' | 'name';
 
 /** 複数地点比較パネル（夜間晴天スコアによる一覧・共通時刻軸ストリップ） */
-export function ComparePanel({ dateKey, places, currentPlace, selectedId, onSelectPlace }: Props) {
+export function ComparePanel({ dateKey, places, hiddenPlaceIds, currentPlace, selectedId, onSelectPlace }: Props) {
   const [sortBy, setSortBy] = useState<SortKey>('score');
   const [includeCurrent, setIncludeCurrent] = useState(false);
 
@@ -32,17 +34,22 @@ export function ComparePanel({ dateKey, places, currentPlace, selectedId, onSele
   const axisStart = noonMs + 5 * HOUR_MS; // 17:00
   const axisEnd = noonMs + 18 * HOUR_MS; // 翌 06:00
 
-  // 天文計算とスコア計算は地点・日付・予報が変わったときだけやり直す
+  // 天文計算とスコア計算は地点・日付・予報・表示設定が変わったときだけやり直す。
+  // 予報は全地点分を取得しておき、非表示のカテゴリは行だけを外す（切り替えるたびに取り直さない）
   const rows = useMemo(
     () =>
-      list.map((place, idx) => {
-        const win = nightWindow(place, dateKey);
-        const fc = forecasts?.[idx] ?? null;
-        const ns = fc && win ? computeNightScore(fc, win) : null;
-        return { place, idx, win, fc, ns };
-      }),
-    [list, dateKey, forecasts],
+      list
+        .map((place, idx) => ({ place, idx }))
+        .filter(({ place }) => !hiddenPlaceIds.has(place.id))
+        .map(({ place, idx }) => {
+          const win = nightWindow(place, dateKey);
+          const fc = forecasts?.[idx] ?? null;
+          const ns = fc && win ? computeNightScore(fc, win) : null;
+          return { place, idx, win, fc, ns };
+        }),
+    [list, dateKey, forecasts, hiddenPlaceIds],
   );
+  const hiddenCount = list.length - rows.length;
 
   const sorted = [...rows].sort((a, b) => {
     if (sortBy === 'score') {
@@ -83,8 +90,11 @@ export function ComparePanel({ dateKey, places, currentPlace, selectedId, onSele
       {error && <div className="error">{error}</div>}
       {loading && !forecasts && <div className="loading-line">複数地点の予報を一括取得中…</div>}
       {!list.length && <div className="empty-state">登録された観測地点がありません。上の観測地点Mapから地点を登録してください。</div>}
+      {list.length > 0 && !rows.length && (
+        <div className="empty-state">すべての地点が非表示のカテゴリに入っています。観測地点Mapの登録地点一覧で、目のアイコンから表示に戻せます。</div>
+      )}
 
-      {list.length > 0 && (
+      {rows.length > 0 && (
         <div className="table-scroll framed">
           <table className="compare-table">
             <thead>
@@ -176,7 +186,14 @@ export function ComparePanel({ dateKey, places, currentPlace, selectedId, onSele
         </div>
       )}
 
-      {list.length > 0 && (
+      {hiddenCount > 0 && rows.length > 0 && (
+        <p className="compare-hidden-note muted">
+          <Icon name="eyeOff" size={14} />
+          非表示にしたカテゴリの {hiddenCount} 地点は表に含めていません（観測地点Mapの登録地点一覧で切り替えられます）。
+        </p>
+      )}
+
+      {rows.length > 0 && (
         <div className="strip-legend-row">
           <span className="muted">時間帯ストリップの色＝晴れ度（100−全雲量、降水時は0）。暗い部分は集計窓の外です。</span>
           <ClearLegend />

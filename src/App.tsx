@@ -98,6 +98,7 @@ export function App() {
         <ComparePanel
           dateKey={dateKey}
           places={places}
+          hiddenPlaceIds={hiddenPlaceIds}
           currentPlace={currentPlace}
           selectedId={activePlace.id}
           onSelectPlace={handleSelectPlace}
