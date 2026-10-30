@@ -5,32 +5,34 @@ import { parseLatLonInput, searchPlaceCandidates, type GeocodeCandidate } from '
 import { buildKml, buildKmz, downloadFile, isSameLocation, readPlacesFile, type KmlPoint } from '../lib/kml';
 import { PIN_OFFSET, TILE_CONFIG, TILE_IDS, baseStyle, createPinMarker, maplibregl, type TileLayerId } from '../lib/maplibre';
 import { computeNightScore, scoreColor } from '../lib/score';
-import { MAX_PLACE_NAME_LENGTH, formatLatLon, newPlaceId, type Place } from '../lib/storage';
+import { isSubmitEnter } from '../lib/keyboard';
+import { MAX_PLACE_NAME_LENGTH, UNCATEGORIZED, formatLatLon, newPlaceId, type Place } from '../lib/storage';
 import { toDateKey, type DateKey } from '../lib/time';
 import { useForecasts } from '../lib/useForecasts';
+import type { PlaceStore } from '../lib/usePlaces';
 import { CardTitle, Icon } from './Icon';
+import { CategoryNameForm, CategoryOptions, PlaceList, UNCATEGORIZED_LABEL } from './PlaceList';
 
 interface Props {
   dateKey: DateKey;
-  places: Place[];
+  store: PlaceStore;
   currentPlace: Place;
   selectedId: string;
   onSelectPlace: (id: string) => void;
-  onAddPlace: (place: Place) => void;
-  onRemovePlace: (id: string) => void;
 }
 
-/**
- * 確定操作としての Enter か。日本語入力（IME）の変換確定に使う Enter は除く
- * （Safari は確定直後の keydown で isComposing が false になるため keyCode 229 も見る）。
- */
 /** KML/KMZ 読み込み後、登録前に確認する一覧の状態 */
 interface ImportPreview {
   fileName: string;
   points: (KmlPoint & { duplicate: boolean })[];
   selected: boolean[];
   skippedNonPoint: number;
+  /** 登録先のカテゴリ */
+  categoryId: string;
 }
+
+/** 登録先カテゴリの選択肢のうち「新しいカテゴリを作成」 */
+const NEW_CATEGORY_OPTION = '__new__';
 
 /** 登録地点一覧の開閉状態（ブラウザごとに覚えておく） */
 const PLACE_LIST_OPEN_KEY = 'aw.placeListOpen';
@@ -53,12 +55,9 @@ function savePlaceListOpen(open: boolean) {
 
 const KML_ACCEPT = '.kml,.kmz,application/vnd.google-earth.kml+xml,application/vnd.google-earth.kmz';
 
-function isSubmitEnter(e: KeyboardEvent<HTMLInputElement>): boolean {
-  return e.key === 'Enter' && !e.nativeEvent.isComposing && e.keyCode !== 229;
-}
-
 /** 観測地点の登録・管理専用マップパネル */
-export function MapPanel({ dateKey, places, currentPlace, selectedId, onSelectPlace, onAddPlace, onRemovePlace }: Props) {
+export function MapPanel({ dateKey, store, currentPlace, selectedId, onSelectPlace }: Props) {
+  const { places, categories, hiddenPlaceIds } = store;
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const markersRef = useRef<maplibregl.Marker[]>([]);
@@ -86,6 +85,14 @@ export function MapPanel({ dateKey, places, currentPlace, selectedId, onSelectPl
   const [importMessage, setImportMessage] = useState<{ kind: 'ok' | 'error'; text: string } | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [placeListOpen, setPlaceListOpen] = useState(loadPlaceListOpen);
+  // 読み込むファイルの登録先カテゴリ（ファイル選択ダイアログを開く前に決めておく）
+  const importCategoryRef = useRef<string | null>(null);
+
+  // 新しく登録する地点のカテゴリ（削除されたカテゴリを指していれば未分類に戻す）
+  const [targetCategory, setTargetCategory] = useState<string>(UNCATEGORIZED);
+  const [creatingTarget, setCreatingTarget] = useState(false);
+  const effectiveTarget = categories.some((c) => c.id === targetCategory) ? targetCategory : UNCATEGORIZED;
+  const targetLabel = categories.find((c) => c.id === effectiveTarget)?.name ?? UNCATEGORIZED_LABEL;
 
   const togglePlaceList = () =>
     setPlaceListOpen((open) => {
@@ -147,6 +154,8 @@ export function MapPanel({ dateKey, places, currentPlace, selectedId, onSelectPl
     markersRef.current = [];
 
     allPlaces.forEach((p, idx) => {
+      // 非表示にしたカテゴリの地点は地図に出さない（予報は取得済みのものを使い回す）
+      if (hiddenPlaceIds.has(p.id)) return;
       const win = nightWindow(p, dateKey);
       const fc = forecasts?.[idx];
       const ns = fc && win ? computeNightScore(fc, win) : null;
@@ -163,12 +172,13 @@ export function MapPanel({ dateKey, places, currentPlace, selectedId, onSelectPl
       const marker = new maplibregl.Marker({ element: el, anchor: 'bottom', offset: PIN_OFFSET }).setLngLat([p.lon, p.lat]).addTo(map);
       markersRef.current.push(marker);
     });
-  }, [allPlaces, forecasts, dateKey, selectedId, onSelectPlace]);
+  }, [allPlaces, forecasts, dateKey, selectedId, onSelectPlace, hiddenPlaceIds]);
 
   const registerPlace = (name: string, lat: number, lon: number) => {
     const finalName = name.trim().slice(0, MAX_PLACE_NAME_LENGTH) || `地点 (${lat.toFixed(2)}, ${lon.toFixed(2)})`;
     const created: Place = { id: newPlaceId(), name: finalName, lat, lon };
-    onAddPlace(created);
+    if (effectiveTarget !== UNCATEGORIZED) created.categoryId = effectiveTarget;
+    store.addPlaces([created]);
     onSelectPlace(created.id);
     mapRef.current?.flyTo({ center: [lon, lat], zoom: Math.max(mapRef.current.getZoom(), 9), duration: 650 });
   };
@@ -209,7 +219,8 @@ export function MapPanel({ dateKey, places, currentPlace, selectedId, onSelectPl
     setClickedLatLon(null);
   };
 
-  const handleImportFile = async (file: File) => {
+  const handleImportFile = async (file: File, categoryId: string = effectiveTarget) => {
+    setDragOver(false);
     setImportMessage(null);
     setImportPreview(null);
     try {
@@ -229,7 +240,13 @@ export function MapPanel({ dateKey, places, currentPlace, selectedId, onSelectPl
         return;
       }
       const points = r.points.map((pt) => ({ ...pt, duplicate: places.some((p) => isSameLocation(p, pt)) }));
-      setImportPreview({ fileName: file.name, points, selected: points.map((pt) => !pt.duplicate), skippedNonPoint: r.skippedNonPoint });
+      setImportPreview({
+        fileName: file.name,
+        points,
+        selected: points.map((pt) => !pt.duplicate),
+        skippedNonPoint: r.skippedNonPoint,
+        categoryId,
+      });
       // 読み込んだ地点が全部見える範囲に地図を合わせる
       const map = mapRef.current;
       if (map) {
@@ -250,18 +267,32 @@ export function MapPanel({ dateKey, places, currentPlace, selectedId, onSelectPl
   const handleRegisterImported = () => {
     if (!importPreview) return;
     const chosen = importPreview.points.filter((_, i) => importPreview.selected[i]);
-    chosen.forEach((pt) => onAddPlace({ id: newPlaceId(), name: pt.name, lat: pt.lat, lon: pt.lon }));
+    // 読み込みの途中でカテゴリが削除されていたら未分類に入れる
+    const catId = categories.some((c) => c.id === importPreview.categoryId) ? importPreview.categoryId : UNCATEGORIZED;
+    store.addPlaces(
+      chosen.map((pt) => {
+        const created: Place = { id: newPlaceId(), name: pt.name, lat: pt.lat, lon: pt.lon };
+        if (catId !== UNCATEGORIZED) created.categoryId = catId;
+        return created;
+      }),
+    );
     setImportPreview(null);
-    setImportMessage({ kind: 'ok', text: `${chosen.length} 地点を登録しました。` });
+    const catName = categories.find((c) => c.id === catId)?.name ?? UNCATEGORIZED_LABEL;
+    setImportMessage({ kind: 'ok', text: `${chosen.length} 地点を「${catName}」に登録しました。` });
   };
 
   const exportPlaces = (format: 'kml' | 'kmz') => {
     const stamp = toDateKey(new Date()).replaceAll('-', '');
     if (format === 'kml') {
-      downloadFile(buildKml(places), `astroweather-places-${stamp}.kml`, 'application/vnd.google-earth.kml+xml');
+      downloadFile(buildKml(places, categories), `astroweather-places-${stamp}.kml`, 'application/vnd.google-earth.kml+xml');
     } else {
-      downloadFile(buildKmz(places), `astroweather-places-${stamp}.kmz`, 'application/vnd.google-earth.kmz');
+      downloadFile(buildKmz(places, categories), `astroweather-places-${stamp}.kmz`, 'application/vnd.google-earth.kmz');
     }
+  };
+
+  const openImportDialog = (categoryId: string) => {
+    importCategoryRef.current = categoryId;
+    fileInputRef.current?.click();
   };
 
   // 緯度・経度フォームの Enter：未入力の欄が残っていれば登録せず次の空欄へ移る
@@ -305,7 +336,6 @@ export function MapPanel({ dateKey, places, currentPlace, selectedId, onSelectPl
       onDrop={(e) => {
         if (!e.dataTransfer.files.length) return;
         e.preventDefault();
-        setDragOver(false);
         handleImportFile(e.dataTransfer.files[0]);
       }}
     >
@@ -315,9 +345,38 @@ export function MapPanel({ dateKey, places, currentPlace, selectedId, onSelectPl
             観測地点Map
           </CardTitle>
           <p className="card-desc">
-            ① 住所・地名検索、② 緯度・経度の直接入力、③ 地図クリック の3通りで観測地点を登録・削除できます。Google マイマップなどの KML / KMZ の読み込み・書き出しにも対応しています（ファイルをここへドラッグ＆ドロップしても読み込めます）。
+            ① 住所・地名検索、② 緯度・経度の直接入力、③ 地図クリック の3通りで観測地点を登録・削除できます。地点はカテゴリに分けて、カテゴリごとに地図での表示・非表示や一括削除ができます。Google マイマップなどの KML / KMZ の読み込み・書き出しにも対応しています（ファイルをここへドラッグ＆ドロップしても読み込めます）。
           </p>
         </div>
+      </div>
+
+      {/* 登録先カテゴリ（検索・緯度経度・地図クリック・KML 読み込みのすべてに使う） */}
+      <div className="register-target">
+        <span className="field-title">
+          <Icon name="folder" size={15} />
+          登録先カテゴリ
+        </span>
+        {creatingTarget ? (
+          <CategoryNameForm
+            submitLabel="作成"
+            onSubmit={(name) => {
+              setTargetCategory(store.addCategory(name).id);
+              setCreatingTarget(false);
+            }}
+            onCancel={() => setCreatingTarget(false)}
+          />
+        ) : (
+          <select
+            className="select register-target-select"
+            value={effectiveTarget}
+            onChange={(e) => (e.target.value === NEW_CATEGORY_OPTION ? setCreatingTarget(true) : setTargetCategory(e.target.value))}
+            aria-label="登録先カテゴリ"
+          >
+            <CategoryOptions categories={categories} />
+            <option value={NEW_CATEGORY_OPTION}>＋ 新しいカテゴリを作成…</option>
+          </select>
+        )}
+        <span className="muted register-target-note">新しく登録する地点はこのカテゴリに入ります</span>
       </div>
 
       {/* 地点登録フォーム（住所・地名検索 ＆ 緯度経度直接入力） */}
@@ -444,6 +503,10 @@ export function MapPanel({ dateKey, places, currentPlace, selectedId, onSelectPl
             <Icon name="target" size={15} />
             地図クリック座標: {formatLatLon(clickedLatLon.lat, clickedLatLon.lon)}
           </span>
+          <span className="add-bar-cat">
+            <Icon name="folder" size={14} />
+            登録先: <b>{targetLabel}</b>
+          </span>
           <div className="input-row">
             <input
               type="text"
@@ -477,6 +540,7 @@ export function MapPanel({ dateKey, places, currentPlace, selectedId, onSelectPl
           >
             <Icon name="chevronRight" size={16} className="toggle-chevron" />
             登録地点 <span className="count-badge mono">{places.length}</span>
+            {categories.length > 0 && <span className="toggle-sub">カテゴリ {categories.length}</span>}
             <span className="toggle-hint">{placeListOpen ? 'しまう' : '一覧を表示'}</span>
           </button>
           <div className="manager-actions">
@@ -488,10 +552,12 @@ export function MapPanel({ dateKey, places, currentPlace, selectedId, onSelectPl
               onChange={(e) => {
                 const file = e.target.files?.[0];
                 e.target.value = ''; // 同じファイルを続けて選んでも読み込めるように
-                if (file) handleImportFile(file);
+                const categoryId = importCategoryRef.current ?? effectiveTarget;
+                importCategoryRef.current = null;
+                if (file) handleImportFile(file, categoryId);
               }}
             />
-            <button type="button" className="btn sm" onClick={() => fileInputRef.current?.click()}>
+            <button type="button" className="btn sm" onClick={() => openImportDialog(effectiveTarget)}>
               <Icon name="upload" size={14} />
               KML / KMZ を読み込む
             </button>
@@ -522,6 +588,18 @@ export function MapPanel({ dateKey, places, currentPlace, selectedId, onSelectPl
                 <b>{importPreview.fileName}</b> から <b className="mono">{importPreview.points.length}</b> 地点が見つかりました
                 {importPreview.skippedNonPoint > 0 && <span className="muted">（線・面 {importPreview.skippedNonPoint} 件は対象外）</span>}
               </span>
+              <label className="import-target">
+                <Icon name="folder" size={14} />
+                登録先
+                <select
+                  className="select"
+                  value={categories.some((c) => c.id === importPreview.categoryId) ? importPreview.categoryId : UNCATEGORIZED}
+                  onChange={(e) => setImportPreview((prev) => prev && { ...prev, categoryId: e.target.value })}
+                  aria-label="読み込んだ地点の登録先カテゴリ"
+                >
+                  <CategoryOptions categories={categories} />
+                </select>
+              </label>
               <label className="check">
                 <input
                   type="checkbox"
@@ -563,21 +641,15 @@ export function MapPanel({ dateKey, places, currentPlace, selectedId, onSelectPl
           </div>
         )}
 
-        {!placeListOpen ? null : places.length === 0 ? (
-          <div className="muted">登録された観測地点はありません。上の検索・緯度経度入力・地図クリック、または KML / KMZ の読み込みから登録してください。</div>
-        ) : (
-          <div className="place-chips" id="place-chip-list">
-            {places.map((p) => (
-              <span key={p.id} className={p.id === selectedId ? 'place-chip active' : 'place-chip'}>
-                <button type="button" className="chip-select" onClick={() => onSelectPlace(p.id)}>
-                  {p.name} <span className="muted mono">{formatLatLon(p.lat, p.lon)}</span>
-                </button>
-                <button type="button" className="chip-del" onClick={() => onRemovePlace(p.id)} title="削除" aria-label={`${p.name}を削除`}>
-                  <Icon name="close" size={13} />
-                </button>
-              </span>
-            ))}
-          </div>
+        {placeListOpen && (
+          <PlaceList
+            store={store}
+            selectedId={selectedId}
+            onSelectPlace={onSelectPlace}
+            onCategoryCreated={setTargetCategory}
+            onImportTo={openImportDialog}
+            onDropFileTo={(file, categoryId) => handleImportFile(file, categoryId)}
+          />
         )}
       </div>
     </section>

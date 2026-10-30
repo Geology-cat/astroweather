@@ -1,6 +1,6 @@
 import type { AstroSummary } from '../lib/astro';
 import { defaultNightKey, weekdayOf, type DateKey } from '../lib/time';
-import { formatLatLon, type Place } from '../lib/storage';
+import { UNCATEGORIZED, categoryOf, formatLatLon, type Category, type Place } from '../lib/storage';
 import { Icon } from './Icon';
 import { MoonIcon } from './MoonIcon';
 
@@ -10,12 +10,20 @@ interface Props {
   onToday: () => void;
   place: Place;
   places: Place[];
+  categories: Category[];
   currentPlace: Place;
   onSelectPlace: (id: string) => void;
   astro: AstroSummary;
 }
 
-export function Header({ dateKey, onShiftDate, onToday, place, places, currentPlace, onSelectPlace, astro }: Props) {
+const placeOptions = (list: Place[]) =>
+  list.map((p) => (
+    <option key={p.id} value={p.id}>
+      {p.name}
+    </option>
+  ));
+
+export function Header({ dateKey, onShiftDate, onToday, place, places, categories, currentPlace, onSelectPlace, astro }: Props) {
   const isTonight = dateKey === defaultNightKey();
   const illum = Math.round(astro.moonInfo.illumination * 100);
   const [y, m, d] = dateKey.split('-').map(Number);
@@ -61,11 +69,17 @@ export function Header({ dateKey, onShiftDate, onToday, place, places, currentPl
           <div className="place-stack">
             <select className="select place-select" value={place.id} onChange={(e) => onSelectPlace(e.target.value)} aria-label="地点">
               <option value={currentPlace.id}>{currentPlace.name}</option>
-              {places.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name}
-                </option>
-              ))}
+              {/* カテゴリがあればカテゴリごとにまとめる */}
+              {categories.length === 0
+                ? placeOptions(places)
+                : [...categories, { id: UNCATEGORIZED, name: '未分類' }].map((c) => {
+                    const inCat = places.filter((p) => categoryOf(p, categories) === c.id);
+                    return inCat.length ? (
+                      <optgroup key={c.id} label={c.name}>
+                        {placeOptions(inCat)}
+                      </optgroup>
+                    ) : null;
+                  })}
             </select>
             <span className="muted mono place-coord">{formatLatLon(place.lat, place.lon)}</span>
           </div>

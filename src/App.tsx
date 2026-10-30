@@ -2,9 +2,10 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { astroSummary } from './lib/astro';
 import { DETAIL_VARS } from './lib/forecast';
 import { computeNightScore } from './lib/score';
-import { CURRENT_ID, FALLBACK_PLACE, loadPlaces, loadSelected, savePlaces, saveSelected, type Place } from './lib/storage';
+import { CURRENT_ID, FALLBACK_PLACE, loadSelected, saveSelected, type Place } from './lib/storage';
 import { addDays, defaultNightKey, type DateKey } from './lib/time';
 import { useForecasts } from './lib/useForecasts';
+import { usePlaces } from './lib/usePlaces';
 import { AstroPanel } from './components/AstroPanel';
 import { CloudMapPanel } from './components/CloudMapPanel';
 import { ComparePanel } from './components/ComparePanel';
@@ -16,7 +17,8 @@ import { ScoreCard } from './components/ScoreCard';
 
 export function App() {
   const [dateKey, setDateKey] = useState<DateKey>(() => defaultNightKey());
-  const [places, setPlaces] = useState<Place[]>(() => loadPlaces());
+  const store = usePlaces();
+  const { places, categories, hiddenPlaceIds } = store;
   const [selectedId, setSelectedId] = useState<string>(() => loadSelected());
   const [currentPlace, setCurrentPlace] = useState<Place>(FALLBACK_PLACE);
 
@@ -50,22 +52,10 @@ export function App() {
     saveSelected(id);
   }, []);
 
-  const handleAddPlace = (place: Place) => {
-    setPlaces((prev) => {
-      const next = [...prev, place];
-      savePlaces(next);
-      return next;
-    });
-  };
-
-  const handleRemovePlace = (id: string) => {
-    setPlaces((prev) => {
-      const next = prev.filter((p) => p.id !== id);
-      savePlaces(next);
-      return next;
-    });
-    if (selectedId === id) handleSelectPlace(CURRENT_ID);
-  };
+  // 選択中の地点が削除されたら（カテゴリごとの一括削除を含む）現在地に戻す
+  useEffect(() => {
+    if (selectedId !== CURRENT_ID && !places.some((p) => p.id === selectedId)) handleSelectPlace(CURRENT_ID);
+  }, [places, selectedId, handleSelectPlace]);
 
   const astro = useMemo(() => astroSummary(activePlace, dateKey), [activePlace, dateKey]);
   const singlePoint = useMemo(() => [{ lat: activePlace.lat, lon: activePlace.lon }], [activePlace.lat, activePlace.lon]);
@@ -85,6 +75,7 @@ export function App() {
         onToday={() => setDateKey(defaultNightKey())}
         place={activePlace}
         places={places}
+        categories={categories}
         currentPlace={currentPlace}
         onSelectPlace={handleSelectPlace}
         astro={astro}
@@ -98,12 +89,10 @@ export function App() {
 
         <MapPanel
           dateKey={dateKey}
-          places={places}
+          store={store}
           currentPlace={currentPlace}
           selectedId={activePlace.id}
           onSelectPlace={handleSelectPlace}
-          onAddPlace={handleAddPlace}
-          onRemovePlace={handleRemovePlace}
         />
 
         <ComparePanel
@@ -125,6 +114,7 @@ export function App() {
         <CloudMapPanel
           dateKey={dateKey}
           places={places}
+          hiddenPlaceIds={hiddenPlaceIds}
           currentPlace={currentPlace}
           selectedId={activePlace.id}
           onSelectPlace={handleSelectPlace}

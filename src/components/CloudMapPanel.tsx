@@ -31,6 +31,8 @@ function ensureOmProtocol() {
 interface Props {
   dateKey: DateKey;
   places: Place[];
+  /** 地図に表示しない地点（非表示カテゴリに属するもの） */
+  hiddenPlaceIds: ReadonlySet<string>;
   currentPlace: Place;
   selectedId: string;
   onSelectPlace: (id: string) => void;
@@ -121,7 +123,7 @@ interface ProbePoint {
 }
 
 /** SCW風の面的な雲量マップ専用パネル */
-export function CloudMapPanel({ dateKey, places, currentPlace, selectedId, onSelectPlace }: Props) {
+export function CloudMapPanel({ dateKey, places, hiddenPlaceIds, currentPlace, selectedId, onSelectPlace }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<maplibregl.Map | null>(null);
   const markersRef = useRef<maplibregl.Marker[]>([]);
@@ -419,6 +421,7 @@ export function CloudMapPanel({ dateKey, places, currentPlace, selectedId, onSel
             : 'icon_seamless';
 
     allPlaces.forEach((p, idx) => {
+      if (hiddenPlaceIds.has(p.id)) return;
       const fc = forecasts?.[idx];
       let cloudPct: number | null = null;
       if (fc && validTimeMs != null && fc.time.length > 0) {
@@ -455,7 +458,7 @@ export function CloudMapPanel({ dateKey, places, currentPlace, selectedId, onSel
       const marker = new maplibregl.Marker({ element: el, anchor: 'bottom', offset: PIN_OFFSET }).setLngLat([p.lon, p.lat]).addTo(map);
       markersRef.current.push(marker);
     });
-  }, [allPlaces, forecasts, spatialDomain, cloudVar, validTimeMs, selectedId, onSelectPlace]);
+  }, [allPlaces, forecasts, spatialDomain, cloudVar, validTimeMs, selectedId, onSelectPlace, hiddenPlaceIds]);
 
   // モデル切替でメタ情報を取り直している間も、直前のスライダーを表示したままにしてレイアウトを揺らさない
   const displayMeta = spatialMeta ?? spatial?.meta ?? null;

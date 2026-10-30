@@ -195,6 +195,8 @@ export function moonInfo(at: Date): MoonInfo {
 export interface AstroSummary {
   key: DateKey;
   sun: BodyEvents;
+  /** 翌日の日の出・日の入（終日表示で翌朝の昼間を判定するため） */
+  sunTomorrow: BodyEvents;
   moon: BodyEvents;
   moonInfo: MoonInfo;
   twilightToday: Twilight;
@@ -216,6 +218,7 @@ export function astroSummary(p: LatLon, key: DateKey, now: Date = new Date()): A
   return {
     key,
     sun: sunEvents(p, key),
+    sunTomorrow: sunEvents(p, addDays(key, 1)),
     moon: moonEvents(p, key),
     moonInfo: moonInfo(phaseMoment),
     twilightToday: twilight(p, key),
