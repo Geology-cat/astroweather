@@ -14,6 +14,8 @@ interface Props {
 }
 
 type ViewMode = 'heatmap' | 'chart';
+/** 表示期間：夜間のみ / 昼を含む終日（6時〜翌6時）/ 全期間（8日・グラフのみ） */
+type RangeMode = 'night' | 'day' | 'full';
 
 export interface MetricDef {
   id: MetricId;
@@ -128,16 +130,21 @@ export function DetailForecastPanel({ fc, astro, loading, error, placeName }: Pr
   const [mode, setMode] = useState<ViewMode>('heatmap');
   const [metricId, setMetricId] = useState<MetricId>('cloud_cover');
   const [summaryModel, setSummaryModel] = useState<ModelId>('jma_msm');
-  const [rangeMode, setRangeMode] = useState<'night' | 'full'>('night');
+  const [rangeMode, setRangeMode] = useState<RangeMode>('night');
   const chartRef = useRef<HTMLDivElement | null>(null);
   const chartInstRef = useRef<echarts.ECharts | null>(null);
 
   const activeMetric = METRICS.find((m) => m.id === metricId) ?? METRICS[1];
 
   const noonMs = jstNoon(astro.key).getTime();
-  // 夜間モード：対象日の 15:00 〜 翌 09:00（18 時間）
-  const nightStart = noonMs + 3 * HOUR_MS;
-  const nightEnd = noonMs + 21 * HOUR_MS;
+  // グラフの期間。夜間：対象日の 15:00 〜 翌 09:00（18 時間）、終日：対象日の 06:00 〜 翌 06:00（24 時間）
+  const chartStart = rangeMode === 'day' ? noonMs - 6 * HOUR_MS : noonMs + 3 * HOUR_MS;
+  const chartEnd = rangeMode === 'day' ? noonMs + 18 * HOUR_MS : noonMs + 21 * HOUR_MS;
+
+  // 昼間（日の出〜日の入）の区間。終日表示では翌朝の日の出以降も昼として扱う
+  const daySpans = [astro.sun, astro.sunTomorrow]
+    .filter((e) => e.rise && e.set && e.rise < e.set)
+    .map((e) => ({ start: e.rise!.getTime(), end: e.set!.getTime() }));
 
   const showChart = mode === 'chart' && fc != null;
 
@@ -162,23 +169,34 @@ export function DetailForecastPanel({ fc, astro, loading, error, placeName }: Pr
 
     const indices: number[] = [];
     fc.time.forEach((t, i) => {
-      if (rangeMode === 'full' || (t >= nightStart && t <= nightEnd)) {
+      if (rangeMode === 'full' || (t >= chartStart && t <= chartEnd)) {
         indices.push(i);
       }
     });
 
     const times = indices.map((i) => fc.time[i]);
 
-    // 背景帯（暗夜＝紫、月明かり＝黄土色）
-    const markAreaData = astro.segments.map((seg) => [
+    // 背景帯（暗夜＝紫、月明かり＝黄土色、昼＝空色）
+    const dayAreaData =
+      rangeMode === 'full'
+        ? []
+        : daySpans.map((d) => [
+            {
+              xAxis: d.start,
+              itemStyle: { color: 'rgba(125, 200, 255, 0.09)' },
+              label: { show: true, position: 'insideTop', formatter: '昼', color: 'rgba(170, 216, 255, 0.6)', fontSize: 10 },
+            },
+            { xAxis: d.end },
+          ]);
+    const nightAreaData = astro.segments.map((seg) => [
       {
         xAxis: seg.start.getTime(),
         itemStyle: {
           color: seg.moonUp ? 'rgba(250, 227, 158, 0.08)' : 'rgba(167, 139, 250, 0.13)',
         },
         label: {
-          // 全期間表示では帯が細く文字が重なるので、夜間表示のときだけ出す
-          show: rangeMode === 'night',
+          // 全期間表示では帯が細く文字が重なるので、1 日分の表示のときだけ出す
+          show: rangeMode !== 'full',
           position: 'insideTop',
           formatter: seg.moonUp ? '月明かり' : '暗夜',
           color: 'rgba(226, 232, 245, 0.5)',
@@ -187,12 +205,13 @@ export function DetailForecastPanel({ fc, astro, loading, error, placeName }: Pr
       },
       { xAxis: seg.end.getTime() },
     ]);
+    const markAreaData = [...dayAreaData, ...nightAreaData];
 
     const series: echarts.SeriesOption[] = MODELS.map((m: ModelId) => ({
       name: MODEL_LABEL[m],
       type: activeMetric.id === 'precipitation' ? 'bar' : 'line',
       smooth: false,
-      showSymbol: rangeMode === 'night',
+      showSymbol: rangeMode !== 'full',
       symbolSize: 5,
       lineStyle: { width: 2, color: MODEL_COLOR[m] },
       itemStyle: { color: MODEL_COLOR[m] },
@@ -251,12 +270,14 @@ export function DetailForecastPanel({ fc, astro, loading, error, placeName }: Pr
       },
       { notMerge: true },
     );
-  }, [showChart, fc, activeMetric, rangeMode, astro, nightStart, nightEnd]);
+    // daySpans は astro から決まるので astro を依存に含めれば足りる
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showChart, fc, activeMetric, rangeMode, astro, chartStart, chartEnd]);
 
-  // ヒートマップ用インデックス（対象日の 17:00 〜 翌 06:00）
+  // ヒートマップ用インデックス（夜間：対象日の 17:00 〜 翌 06:00、終日：対象日の 06:00 〜 翌 06:00）
   const heatIndices: number[] = [];
   if (fc) {
-    const hs = noonMs + 5 * HOUR_MS;
+    const hs = rangeMode === 'night' ? noonMs + 5 * HOUR_MS : noonMs - 6 * HOUR_MS;
     const he = noonMs + 18 * HOUR_MS;
     fc.time.forEach((t, i) => {
       if (t >= hs && t <= he) heatIndices.push(i);
@@ -274,10 +295,11 @@ export function DetailForecastPanel({ fc, astro, loading, error, placeName }: Pr
             const inDark = astro.segments.some(
               (s) => !s.moonUp && t >= s.start.getTime() - HOUR_MS / 2 && t <= s.end.getTime() + HOUR_MS / 2,
             );
+            const inDay = !inNight && daySpans.some((d) => t >= d.start && t <= d.end);
             return (
-              <th key={t} className={inDark ? 'th-dark' : inNight ? 'th-night' : ''}>
+              <th key={t} className={inDark ? 'th-dark' : inNight ? 'th-night' : inDay ? 'th-day' : ''}>
                 <div className="mono">{formatHM(new Date(t))}</div>
-                <div className="th-tag">{inDark ? '暗夜' : inNight ? '月出' : '薄明'}</div>
+                <div className="th-tag">{inDark ? '暗夜' : inNight ? '月出' : inDay ? '昼' : '薄明'}</div>
               </th>
             );
           })}
@@ -296,23 +318,34 @@ export function DetailForecastPanel({ fc, astro, loading, error, placeName }: Pr
         </div>
         <div className="head-controls">
           <div className="seg-group" role="group" aria-label="表示形式">
-            <button type="button" className={mode === 'heatmap' ? 'seg active' : 'seg'} onClick={() => setMode('heatmap')}>
+            <button
+              type="button"
+              className={mode === 'heatmap' ? 'seg active' : 'seg'}
+              onClick={() => {
+                setMode('heatmap');
+                // ヒートマップ表に 8 日分は並べきれないので、全期間を選んでいたら終日に切り替える
+                if (rangeMode === 'full') setRangeMode('day');
+              }}
+            >
               ヒートマップ表
             </button>
             <button type="button" className={mode === 'chart' ? 'seg active' : 'seg'} onClick={() => setMode('chart')}>
               折れ線グラフ
             </button>
           </div>
-          {mode === 'chart' && (
-            <div className="seg-group" role="group" aria-label="表示期間">
-              <button type="button" className={rangeMode === 'night' ? 'seg active' : 'seg'} onClick={() => setRangeMode('night')}>
-                夜間（15時〜翌9時）
-              </button>
+          <div className="seg-group" role="group" aria-label="表示期間">
+            <button type="button" className={rangeMode === 'night' ? 'seg active' : 'seg'} onClick={() => setRangeMode('night')}>
+              {mode === 'chart' ? '夜間（15時〜翌9時）' : '夜間（17時〜翌6時）'}
+            </button>
+            <button type="button" className={rangeMode === 'day' ? 'seg active' : 'seg'} onClick={() => setRangeMode('day')}>
+              終日（6時〜翌6時）
+            </button>
+            {mode === 'chart' && (
               <button type="button" className={rangeMode === 'full' ? 'seg active' : 'seg'} onClick={() => setRangeMode('full')}>
                 全期間（8日）
               </button>
-            </div>
-          )}
+            )}
+          </div>
         </div>
       </div>
 

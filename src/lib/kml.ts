@@ -1,7 +1,7 @@
 // 観測地点の KML / KMZ 読み込み・書き出し（Google マイマップ・Google Earth などとの相互運用）。
 // KMZ は doc.kml などを収めた ZIP なので fflate で展開・圧縮する。
 import { strFromU8, strToU8, unzipSync, zipSync } from 'fflate';
-import { MAX_PLACE_NAME_LENGTH, type Place } from './storage';
+import { MAX_PLACE_NAME_LENGTH, UNCATEGORIZED, categoryOf, type Category, type Place } from './storage';
 
 // 読み込みの上限。巨大なファイルや、展開すると膨れ上がる ZIP（ZIP 爆弾）でブラウザが固まらないようにする
 /** 読み込むファイル（.kml / .kmz）の最大サイズ */
@@ -112,31 +112,42 @@ export async function readPlacesFile(file: File): Promise<KmlParseResult> {
 const escapeXml = (s: string) =>
   s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' })[c]!);
 
-/** 登録地点を KML 文字列にする */
-export function buildKml(places: Place[], docName = 'AstroWeather 観測地点'): string {
-  const placemarks = places
-    .map(
-      (p) => `    <Placemark>
-      <name>${escapeXml(p.name)}</name>
-      <Point>
-        <coordinates>${p.lon},${p.lat},0</coordinates>
-      </Point>
-    </Placemark>`,
-    )
-    .join('\n');
+const placemarkXml = (p: Place, indent: string) => `${indent}<Placemark>
+${indent}  <name>${escapeXml(p.name)}</name>
+${indent}  <Point>
+${indent}    <coordinates>${p.lon},${p.lat},0</coordinates>
+${indent}  </Point>
+${indent}</Placemark>`;
+
+/**
+ * 登録地点を KML 文字列にする。
+ * カテゴリを渡すと、カテゴリごとに <Folder> にまとめる（Google Earth などでフォルダとして表示される）。
+ */
+export function buildKml(places: Place[], categories: Category[] = [], docName = 'AstroWeather 観測地点'): string {
+  const body: string[] = [];
+  for (const c of categories) {
+    const inCat = places.filter((p) => categoryOf(p, categories) === c.id);
+    if (!inCat.length) continue;
+    body.push(`    <Folder>
+      <name>${escapeXml(c.name)}</name>
+${inCat.map((p) => placemarkXml(p, '      ')).join('\n')}
+    </Folder>`);
+  }
+  // 未分類の地点はフォルダに入れず、文書の直下に置く
+  body.push(...places.filter((p) => categoryOf(p, categories) === UNCATEGORIZED).map((p) => placemarkXml(p, '    ')));
   return `<?xml version="1.0" encoding="UTF-8"?>
 <kml xmlns="http://www.opengis.net/kml/2.2">
   <Document>
     <name>${escapeXml(docName)}</name>
-${placemarks}
+${body.join('\n')}
   </Document>
 </kml>
 `;
 }
 
 /** 登録地点を KMZ（doc.kml を収めた ZIP）にする */
-export function buildKmz(places: Place[]): Uint8Array {
-  return zipSync({ 'doc.kml': strToU8(buildKml(places)) });
+export function buildKmz(places: Place[], categories: Category[] = []): Uint8Array {
+  return zipSync({ 'doc.kml': strToU8(buildKml(places, categories)) });
 }
 
 /** 既存の地点と同じ座標（約 1m 以内）か */

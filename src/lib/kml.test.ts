@@ -97,6 +97,27 @@ describe('書き出し', () => {
   it('書き出した KMZ を読み戻すと同じ地点になる', () => {
     expect(parseKml(kmzToKml(buildKmz(places))).points).toHaveLength(2);
   });
+
+  it('カテゴリごとにフォルダへまとめ、未分類は文書直下に置く', () => {
+    const categories = [
+      { id: 'c1', name: '道央 & 道北' },
+      { id: 'c2', name: '空のカテゴリ' },
+    ];
+    const kml = buildKml(
+      [
+        { ...places[0], categoryId: 'c1' },
+        { ...places[1], categoryId: 'c-deleted' }, // 削除済みカテゴリは未分類扱い
+      ],
+      categories,
+    );
+    const doc = new DOMParser().parseFromString(kml, 'application/xml');
+    const folders = Array.from(doc.getElementsByTagName('Folder'));
+    expect(folders).toHaveLength(1); // 地点のないカテゴリはフォルダを作らない
+    expect(folders[0].querySelector('name')?.textContent).toBe('道央 & 道北');
+    expect(folders[0].getElementsByTagName('Placemark')).toHaveLength(1);
+    // 読み戻すとフォルダ名ではなく地点名が使われる
+    expect(parseKml(kml).points.map((p) => p.name)).toEqual(['芦別 <A&B>', '支笏湖']);
+  });
 });
 
 describe('isSameLocation', () => {
