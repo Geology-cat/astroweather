@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { astroSummary } from './lib/astro';
 import { DETAIL_VARS } from './lib/forecast';
 import { computeNightScore } from './lib/score';
 import { CURRENT_ID, FALLBACK_PLACE, loadSelected, saveSelected, type Place } from './lib/storage';
-import { addDays, defaultNightKey, type DateKey } from './lib/time';
+import { useModelNextUpdates } from './lib/modelUpdates';
+import { addDays, toDateKey, type DateKey } from './lib/time';
 import { useForecasts } from './lib/useForecasts';
+import { useNow } from './lib/useNow';
 import { usePlaces } from './lib/usePlaces';
 import { AstroPanel } from './components/AstroPanel';
 import { CloudMapPanel } from './components/CloudMapPanel';
@@ -16,7 +18,21 @@ import { MapPanel } from './components/MapPanel';
 import { ScoreCard } from './components/ScoreCard';
 
 export function App() {
-  const [dateKey, setDateKey] = useState<DateKey>(() => defaultNightKey());
+  // 現在時刻（毎分更新）。日本時間 0:00 で「今日」が切り替わる
+  const now = useNow();
+  const today = toDateKey(now);
+  const [dateKey, setDateKey] = useState<DateKey>(today);
+
+  // 日付が変わったとき、「今日」を表示していたなら新しい今日へ追従する（別の日を見ているときはそのまま）
+  const prevTodayRef = useRef(today);
+  useEffect(() => {
+    const prev = prevTodayRef.current;
+    if (prev === today) return;
+    prevTodayRef.current = today;
+    setDateKey((k) => (k === prev ? today : k));
+  }, [today]);
+
+  const nextUpdates = useModelNextUpdates(now);
   const store = usePlaces();
   const { places, categories, hiddenPlaceIds } = store;
   const [selectedId, setSelectedId] = useState<string>(() => loadSelected());
@@ -57,7 +73,9 @@ export function App() {
     if (selectedId !== CURRENT_ID && !places.some((p) => p.id === selectedId)) handleSelectPlace(CURRENT_ID);
   }, [places, selectedId, handleSelectPlace]);
 
-  const astro = useMemo(() => astroSummary(activePlace, dateKey), [activePlace, dateKey]);
+  // 今日の月齢は現在時刻で計算する。月齢は小数 1 桁表示なので、再計算は 10 分ごとで十分
+  const moonClock = Math.floor(now.getTime() / 600000) * 600000;
+  const astro = useMemo(() => astroSummary(activePlace, dateKey, new Date(moonClock)), [activePlace, dateKey, moonClock]);
   const singlePoint = useMemo(() => [{ lat: activePlace.lat, lon: activePlace.lon }], [activePlace.lat, activePlace.lon]);
   const { data: detailList, loading: detailLoading, error: detailError } = useForecasts(singlePoint, DETAIL_VARS);
   const detailFc = detailList?.[0] ?? null;
@@ -71,8 +89,9 @@ export function App() {
     <div className="app">
       <Header
         dateKey={dateKey}
+        today={today}
         onShiftDate={(d) => setDateKey((k) => addDays(k, d))}
-        onToday={() => setDateKey(defaultNightKey())}
+        onToday={() => setDateKey(today)}
         place={activePlace}
         places={places}
         categories={categories}
@@ -83,7 +102,15 @@ export function App() {
 
       <main className="app-shell">
         <div className="overview">
-          <ScoreCard score={activeScore} fc={detailFc} win={astro.night} loading={detailLoading} error={detailError} />
+          <ScoreCard
+            score={activeScore}
+            fc={detailFc}
+            win={astro.night}
+            loading={detailLoading}
+            error={detailError}
+            nextUpdates={nextUpdates}
+            now={now}
+          />
           <AstroPanel astro={astro} />
         </div>
 

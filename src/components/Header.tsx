@@ -1,11 +1,13 @@
 import type { AstroSummary } from '../lib/astro';
-import { defaultNightKey, weekdayOf, type DateKey } from '../lib/time';
+import { weekdayOf, type DateKey } from '../lib/time';
 import { UNCATEGORIZED, categoryOf, formatLatLon, type Category, type Place } from '../lib/storage';
 import { Icon } from './Icon';
 import { MoonIcon } from './MoonIcon';
 
 interface Props {
   dateKey: DateKey;
+  /** 現在の日本時間の暦日 */
+  today: DateKey;
   onShiftDate: (days: number) => void;
   onToday: () => void;
   place: Place;
@@ -23,8 +25,8 @@ const placeOptions = (list: Place[]) =>
     </option>
   ));
 
-export function Header({ dateKey, onShiftDate, onToday, place, places, categories, currentPlace, onSelectPlace, astro }: Props) {
-  const isTonight = dateKey === defaultNightKey();
+export function Header({ dateKey, today, onShiftDate, onToday, place, places, categories, currentPlace, onSelectPlace, astro }: Props) {
+  const isToday = dateKey === today;
   const illum = Math.round(astro.moonInfo.illumination * 100);
   const [y, m, d] = dateKey.split('-').map(Number);
   const wd = weekdayOf(dateKey);
@@ -42,7 +44,7 @@ export function Header({ dateKey, onShiftDate, onToday, place, places, categorie
           <button type="button" className="icon-btn" onClick={() => onShiftDate(-1)} aria-label="前の日">
             <Icon name="chevronLeft" size={20} />
           </button>
-          <h1 className="date-title mono" onDoubleClick={onToday} title="ダブルクリックで今夜に戻る">
+          <h1 className="date-title mono" onDoubleClick={onToday} title="ダブルクリックで今日に戻る">
             {/* 狭い画面では年を省き、曜日を短く表示する */}
             <span className="date-year">{y}年</span>
             {m}月{d}日<span className="date-wd-long"> {wd}曜日</span>
@@ -53,12 +55,12 @@ export function Header({ dateKey, onShiftDate, onToday, place, places, categorie
           </button>
           <button
             type="button"
-            className={isTonight ? 'today-btn is-hidden' : 'today-btn'}
+            className={isToday ? 'today-btn is-hidden' : 'today-btn'}
             onClick={onToday}
-            tabIndex={isTonight ? -1 : 0}
-            aria-hidden={isTonight}
+            tabIndex={isToday ? -1 : 0}
+            aria-hidden={isToday}
           >
-            今夜
+            今日
           </button>
         </div>
 
