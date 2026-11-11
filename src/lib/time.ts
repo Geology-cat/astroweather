@@ -31,13 +31,9 @@ export function addDays(key: DateKey, n: number): DateKey {
   return toDateKey(new Date(jstMidnight(key).getTime() + n * DAY_MS + 12 * HOUR_MS));
 }
 
-/**
- * 既定で表示する「夜」の日付。
- * 日本時間 6 時前なら、まだ前日の夜の途中とみなして前日を返す。
- */
-export function defaultNightKey(now: Date = new Date()): DateKey {
-  const hour = new Date(now.getTime() + JST_OFFSET_MS).getUTCHours();
-  return hour < 6 ? toDateKey(new Date(now.getTime() - DAY_MS)) : toDateKey(now);
+/** 現在の日本時間の暦日（0:00 で切り替わる） */
+export function todayKey(now: Date = new Date()): DateKey {
+  return toDateKey(now);
 }
 
 /** 分単位に四捨五入した時刻（日本時間）の [時, 分] と、基準日からの日数差 */

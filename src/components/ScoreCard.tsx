@@ -1,7 +1,8 @@
 import type { NightWindow } from '../lib/astro';
 import { MODELS, MODEL_COLOR, MODEL_LABEL, type LocationForecast } from '../lib/forecast';
 import { hourlyClear, scoreColor, type NightScore } from '../lib/score';
-import { HOUR_MS, formatDuration, formatHM } from '../lib/time';
+import type { ModelNextUpdate } from '../lib/modelUpdates';
+import { HOUR_MS, formatDuration, formatHM, formatTime, toDateKey } from '../lib/time';
 import { ClearLegend, ClearStrip } from './ClearStrip';
 import { CardTitle } from './Icon';
 
@@ -54,10 +55,40 @@ interface Props {
   win: NightWindow | null;
   loading: boolean;
   error: string | null;
+  nextUpdates: Record<(typeof MODELS)[number], ModelNextUpdate>;
+  now: Date;
+}
+
+/** 4 モデルの次回更新時刻（目安）を小さく表示する */
+function ModelUpdateLine({ nextUpdates, now }: { nextUpdates: Props['nextUpdates']; now: Date }) {
+  const today = toDateKey(now);
+  const anyEstimated = MODELS.some((m) => nextUpdates[m].estimated);
+  return (
+    <div
+      className="model-updates"
+      title={
+        anyEstimated
+          ? 'Open-Meteo で次の初期値の予報が使えるようになる見込み時刻です（一部は通信できないため運用スケジュールからの推定）'
+          : 'Open-Meteo で次の初期値の予報が使えるようになる見込み時刻です（Open-Meteo のモデル更新情報から算出）'
+      }
+    >
+      <span className="model-updates-label">次回モデル更新（目安）</span>
+      {MODELS.map((m) => {
+        const u = nextUpdates[m];
+        return (
+          <span key={m} className="model-update">
+            <i className="model-dot" style={{ background: MODEL_COLOR[m] }} />
+            {MODEL_LABEL[m]}{' '}
+            <b className="mono">{u.overdue ? '更新待ち' : `${formatTime(new Date(u.nextMs), today)}${u.estimated ? '頃' : ''}`}</b>
+          </span>
+        );
+      })}
+    </div>
+  );
 }
 
 /** 選択地点の夜間晴天スコアカード */
-export function ScoreCard({ score, fc, win, loading, error }: Props) {
+export function ScoreCard({ score, fc, win, loading, error, nextUpdates, now }: Props) {
   const axisStart = win ? Math.floor(win.start.getTime() / HOUR_MS) * HOUR_MS - HOUR_MS : 0;
   const axisEnd = win ? Math.ceil(win.end.getTime() / HOUR_MS) * HOUR_MS + HOUR_MS : 0;
   return (
@@ -132,6 +163,7 @@ export function ScoreCard({ score, fc, win, loading, error }: Props) {
           </div>
         </div>
       )}
+      <ModelUpdateLine nextUpdates={nextUpdates} now={now} />
     </section>
   );
 }
